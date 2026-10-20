@@ -129,6 +129,19 @@ if(FAISS_ENABLE_CUVS AND NOT TARGET rmm::rmm)
   find_package(rmm REQUIRED)
 endif()
 
+# LoongArch compilers may enable LSX by default. Keep common code, Python
+# wrappers and tests at the scalar baseline; SIMD source files opt in with
+# per-file flags. Directory options also cover in-tree test dependencies,
+# without exporting ISA flags to consumers of the installed library.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mno-lsx;-mno-lasx" FAISS_COMPILER_SUPPORTS_LOONGARCH_BASELINE)
+  if(NOT FAISS_COMPILER_SUPPORTS_LOONGARCH_BASELINE)
+    message(FATAL_ERROR "The LoongArch compiler must support -mno-lsx -mno-lasx.")
+  endif()
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-mno-lsx;-mno-lasx>")
+endif()
+
 add_subdirectory(faiss)
 
 if(FAISS_ENABLE_GPU)

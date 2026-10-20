@@ -33,6 +33,10 @@ enum class SIMDLevel {
     // (Ice Lake, Zen 4, etc.).
     AVX512_VPOPCNT,
 
+    // LoongArch (optional extensions; preserve existing enum values).
+    LOONGARCH_LSX,
+    LOONGARCH_LASX,
+
     COUNT
 };
 

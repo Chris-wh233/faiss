@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <faiss/impl/FaissException.h>
+#include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/simd_levels.h>
 #include <faiss/utils/utils.h>
 
@@ -125,6 +126,11 @@ TEST(SIMDLevel, to_string_all_levels) {
     EXPECT_EQ("ARM_NEON", faiss::to_string(faiss::SIMDLevel::ARM_NEON));
     EXPECT_EQ("ARM_SVE", faiss::to_string(faiss::SIMDLevel::ARM_SVE));
     EXPECT_EQ("RISCV_RVV", faiss::to_string(faiss::SIMDLevel::RISCV_RVV));
+    EXPECT_EQ(
+            "LOONGARCH_LSX", faiss::to_string(faiss::SIMDLevel::LOONGARCH_LSX));
+    EXPECT_EQ(
+            "LOONGARCH_LASX",
+            faiss::to_string(faiss::SIMDLevel::LOONGARCH_LASX));
 
     // COUNT should throw
     EXPECT_THROW(
@@ -142,6 +148,12 @@ TEST(SIMDLevel, to_simd_level_all_strings) {
     EXPECT_EQ(faiss::SIMDLevel::ARM_NEON, faiss::to_simd_level("ARM_NEON"));
     EXPECT_EQ(faiss::SIMDLevel::ARM_SVE, faiss::to_simd_level("ARM_SVE"));
     EXPECT_EQ(faiss::SIMDLevel::RISCV_RVV, faiss::to_simd_level("RISCV_RVV"));
+    EXPECT_EQ(
+            faiss::SIMDLevel::LOONGARCH_LSX,
+            faiss::to_simd_level("LOONGARCH_LSX"));
+    EXPECT_EQ(
+            faiss::SIMDLevel::LOONGARCH_LASX,
+            faiss::to_simd_level("LOONGARCH_LASX"));
 
     // Invalid strings should throw
     EXPECT_THROW(faiss::to_simd_level("INVALID"), faiss::FaissException);
@@ -189,5 +201,46 @@ TEST(CompileOptions, lists_expected_levels) {
     if (is_dd_mode()) {
         EXPECT_NE(options.find("DD"), std::string::npos)
                 << "DD mode should have 'DD' in compile options: " << options;
+    }
+}
+
+TEST(SIMDLevel, loongarch_dispatch_falls_back_within_family) {
+    using faiss::SIMDLevel;
+    constexpr int scalar = faiss::AVAILABLE_SIMD_LEVELS_NONE;
+    constexpr int lsx = scalar | (1 << int(SIMDLevel::LOONGARCH_LSX));
+    constexpr int lasx = lsx | (1 << int(SIMDLevel::LOONGARCH_LASX));
+    // Including another architecture in the mask must not select its kernels.
+    constexpr int unrelated = scalar | (1 << int(SIMDLevel::AVX2)) |
+            (1 << int(SIMDLevel::ARM_NEON));
+    auto selected = []<SIMDLevel SL>() { return SL; };
+
+    EXPECT_EQ(
+            SIMDLevel::LOONGARCH_LASX,
+            (faiss::dispatch_with_fallback<lasx, SIMDLevel::LOONGARCH_LASX>(
+                    selected)));
+    EXPECT_EQ(
+            SIMDLevel::LOONGARCH_LSX,
+            (faiss::dispatch_with_fallback<lsx, SIMDLevel::LOONGARCH_LASX>(
+                    selected)));
+    EXPECT_EQ(
+            SIMDLevel::NONE,
+            (faiss::dispatch_with_fallback<
+                    unrelated,
+                    SIMDLevel::LOONGARCH_LASX>(selected)));
+    EXPECT_EQ(
+            SIMDLevel::NONE,
+            (faiss::dispatch_with_fallback<scalar, SIMDLevel::LOONGARCH_LSX>(
+                    selected)));
+}
+
+TEST(SIMDConfig, uncompiled_loongarch_levels_are_unavailable) {
+    const uint64_t compiled = faiss::compiled_simd_levels();
+    for (auto level :
+         {faiss::SIMDLevel::LOONGARCH_LSX, faiss::SIMDLevel::LOONGARCH_LASX}) {
+        if ((compiled & (uint64_t(1) << int(level))) == 0) {
+            EXPECT_FALSE(faiss::SIMDConfig::is_simd_level_available(level));
+            EXPECT_THROW(
+                    faiss::SIMDConfig::set_level(level), faiss::FaissException);
+        }
     }
 }

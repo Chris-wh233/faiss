@@ -63,9 +63,12 @@ constexpr SIMDLevel get_simd_fallback(SIMDLevel level) {
             return SIMDLevel::AVX2;
         case SIMDLevel::ARM_SVE:
             return SIMDLevel::ARM_NEON;
+        case SIMDLevel::LOONGARCH_LASX:
+            return SIMDLevel::LOONGARCH_LSX;
         case SIMDLevel::AVX2:
         case SIMDLevel::ARM_NEON:
         case SIMDLevel::RISCV_RVV:
+        case SIMDLevel::LOONGARCH_LSX:
             return SIMDLevel::NONE;
         default:
             return SIMDLevel::NONE;
@@ -175,6 +178,24 @@ inline auto with_selected_simd_levels(LambdaType&& action) {
             }
             [[fallthrough]];
 #endif
+            // For LoongArch, try LASX, then LSX, then scalar.
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+        case SIMDLevel::LOONGARCH_LASX:
+            if constexpr (
+                    available_levels & (1 << int(SIMDLevel::LOONGARCH_LASX))) {
+                return action.template operator()<SIMDLevel::LOONGARCH_LASX>();
+            }
+            [[fallthrough]];
+#endif
+
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+        case SIMDLevel::LOONGARCH_LSX:
+            if constexpr (
+                    available_levels & (1 << int(SIMDLevel::LOONGARCH_LSX))) {
+                return action.template operator()<SIMDLevel::LOONGARCH_LSX>();
+            }
+            [[fallthrough]];
+#endif
         default:
             return action.template operator()<SIMDLevel::NONE>();
     }
@@ -185,6 +206,7 @@ inline auto with_selected_simd_levels(LambdaType&& action) {
     //   x86:   AVX512_SPR -> AVX512_VPOPCNT -> AVX512 -> AVX2 -> NONE
     //   ARM:   ARM_SVE -> ARM_NEON -> NONE
     //   RISCV: RISCV_RVV -> NONE
+    //   LoongArch: LOONGARCH_LASX -> LOONGARCH_LSX -> NONE
     // The first level in the chain that appears in available_levels is
     // selected; if none match, NONE is used unconditionally.
     return dispatch_with_fallback<available_levels, SINGLE_SIMD_LEVEL>(
