@@ -232,7 +232,9 @@ inline void compute_PQ_dis_tables_dsub2_dispatch(
         const float* x,
         bool is_inner_product,
         float* dis_tables) {
-    with_simd_level_256bit([&]<SIMDLevel level>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel level>() {
         compute_PQ_dis_tables_dsub2<level>(
                 d, ksub, centroids, nx, x, is_inner_product, dis_tables);
     });

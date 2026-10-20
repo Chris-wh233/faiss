@@ -34,7 +34,9 @@ void pq_scan_8bit(
         float* heap_dis,
         int64_t* heap_ids,
         bool max_heap) {
-    with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         pq_scan_8bit_impl<SL>(
                 M, dis_table, codes, ncodes, k, heap_dis, heap_ids, max_heap);
     });
@@ -44,7 +46,9 @@ float pq_code_distance_8bit_single(
         size_t M,
         const float* sim_table,
         const uint8_t* code) {
-    return with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         return pq_code_distance_8bit_single_impl<SL>(M, sim_table, code);
     });
 }
@@ -60,7 +64,9 @@ void pq_code_distance_8bit_four(
         float& result1,
         float& result2,
         float& result3) {
-    with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         pq_code_distance_8bit_four_impl<SL>(
                 M,
                 sim_table,

@@ -115,7 +115,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
       COMPILE_DEFINITIONS FAISS_TEST_LASX)
   endif()
   if(FAISS_OPT_LEVEL STREQUAL "dd")
-    list(APPEND FAISS_TEST_SRC test_distances_loongarch.cpp test_hamming_loongarch.cpp test_rabitq_loongarch.cpp test_scalar_quantizer_loongarch.cpp)
+    list(APPEND FAISS_TEST_SRC test_distances_loongarch.cpp test_hamming_loongarch.cpp test_rabitq_loongarch.cpp test_scalar_quantizer_loongarch.cpp test_pq_loongarch.cpp)
   endif()
 endif()
 

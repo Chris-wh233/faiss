@@ -280,7 +280,9 @@ void compute_1_code(const ProductQuantizer& pq, const float* x, uint8_t* code) {
 } // namespace
 
 void ProductQuantizer::compute_code(const float* x, uint8_t* code) const {
-    with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         switch (nbits) {
             case 8:
                 compute_1_code<PQEncoder8, SL>(*this, x, code);
@@ -442,7 +444,9 @@ void ProductQuantizer::compute_codes(const float* x, uint8_t* codes, size_t n)
 
 void ProductQuantizer::compute_distance_table(const float* x, float* dis_table)
         const {
-    with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         if (transposed_centroids.empty()) {
             // use regular version
             for (size_t m = 0; m < M; m++) {
@@ -472,7 +476,9 @@ void ProductQuantizer::compute_distance_table(const float* x, float* dis_table)
 void ProductQuantizer::compute_inner_prod_table(
         const float* x,
         float* dis_table) const {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         for (size_t m = 0; m < M; m++) {
             fvec_inner_products_ny<SL>(
                     dis_table + m * ksub,
@@ -489,8 +495,11 @@ void ProductQuantizer::compute_distance_tables(
         const float* x,
         float* dis_tables) const {
     int64_t nx_signed = nx;
-#if defined(COMPILE_SIMD_AVX2) || defined(COMPILE_SIMD_ARM_NEON)
-    if (dsub == 2 && nbits < 8) { // interesting for a narrow range of settings
+#if defined(COMPILE_SIMD_AVX2) || defined(COMPILE_SIMD_ARM_NEON) || \
+        defined(COMPILE_SIMD_LOONGARCH_LSX) ||                      \
+        defined(COMPILE_SIMD_LOONGARCH_LASX)
+    if (dsub == 2 && nbits >= 3 &&
+        nbits < 8) { // interesting for a narrow range of settings
         compute_PQ_dis_tables_dsub2(
                 d, ksub, centroids.data(), nx, x, false, dis_tables);
     } else
@@ -524,8 +533,10 @@ void ProductQuantizer::compute_inner_prod_tables(
         const float* x,
         float* dis_tables) const {
     int64_t nx_signed = nx;
-#if defined(COMPILE_SIMD_AVX2) || defined(COMPILE_SIMD_ARM_NEON)
-    if (dsub == 2 && nbits < 8) {
+#if defined(COMPILE_SIMD_AVX2) || defined(COMPILE_SIMD_ARM_NEON) || \
+        defined(COMPILE_SIMD_LOONGARCH_LSX) ||                      \
+        defined(COMPILE_SIMD_LOONGARCH_LASX)
+    if (dsub == 2 && nbits >= 3 && nbits < 8) {
         compute_PQ_dis_tables_dsub2(
                 d, ksub, centroids.data(), nx, x, true, dis_tables);
     } else
@@ -824,7 +835,9 @@ void ProductQuantizer::compute_sdc_table() {
     sdc_table.resize(M * ksub * ksub);
 
     if (dsub < 4) {
-        with_simd_level_with_sve([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+                AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for
             for (int64_t mk = 0; mk < static_cast<int64_t>(M * ksub); mk++) {
                 // allow omp to schedule in a more fine-grained way

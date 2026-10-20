@@ -82,6 +82,7 @@ set(FAISS_SIMD_LSX_SRC
   impl/binary_hamming/lsx.cpp
   utils/simd_impl/rabitq_lsx.cpp
   impl/scalar_quantizer/sq-lsx.cpp
+  impl/pq_code_distance/lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/distances_lasx.cpp
@@ -89,6 +90,7 @@ set(FAISS_SIMD_LASX_SRC
   impl/binary_hamming/lasx.cpp
   utils/simd_impl/rabitq_lasx.cpp
   impl/scalar_quantizer/sq-lasx.cpp
+  impl/pq_code_distance/lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.
@@ -460,6 +462,8 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h
   utils/simd_impl/distances_loongarch-inl.h
+  utils/simd_impl/pq_tables_simdlib256.h
+  impl/pq_code_distance/pq_code_distance-loongarch.h
   utils/simd_impl/distances_simdlib256.h
   utils/hamming_distance/hamming_impl.h
   utils/simd_impl/exhaustive_L2sqr_blas_cmax.h

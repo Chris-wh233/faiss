@@ -42,9 +42,10 @@ namespace pq_code_distance {
  * PQCodeDistance for ALL decoder types (PQDecoder8, PQDecoder16,
  * PQDecoderGeneric) at the chosen level.
  *
- * Only PQDecoder8 has SIMD-optimized implementations (AVX2, AVX512,
- * ARM_SVE). The other decoders always use scalar code — their decode()
- * method is inherently sequential, so SIMD doesn't help.
+ * PQDecoder8 has SIMD-optimized implementations (AVX2, AVX512, ARM_SVE,
+ * LoongArch). Other decoders default to scalar code. Per-ISA specializations
+ * may still vectorize accumulation after sequential decoding, as the
+ * LoongArch implementation does.
  *
  * The primary template is always complete (no forward declarations
  * needed). For PQDecoder8, it delegates to _impl dispatch bridge
