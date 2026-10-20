@@ -83,6 +83,7 @@ set(FAISS_SIMD_LSX_SRC
   utils/simd_impl/rabitq_lsx.cpp
   impl/scalar_quantizer/sq-lsx.cpp
   impl/pq_code_distance/lsx.cpp
+  impl/fast_scan/impl-lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/distances_lasx.cpp
@@ -91,6 +92,7 @@ set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/rabitq_lasx.cpp
   impl/scalar_quantizer/sq-lasx.cpp
   impl/pq_code_distance/lasx.cpp
+  impl/fast_scan/impl-lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.
