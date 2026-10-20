@@ -80,11 +80,13 @@ set(FAISS_SIMD_LSX_SRC
   utils/simd_impl/distances_lsx.cpp
   utils/hamming_distance/hamming_lsx.cpp
   impl/binary_hamming/lsx.cpp
+  utils/simd_impl/rabitq_lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/distances_lasx.cpp
   utils/hamming_distance/hamming_lasx.cpp
   impl/binary_hamming/lasx.cpp
+  utils/simd_impl/rabitq_lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.
@@ -449,6 +451,7 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-generic.h
   utils/hamming_distance/hamming_computer-loongarch.h
   utils/simd_impl/loongarch_bits.h
+  utils/simd_impl/rabitq_loongarch-inl.h
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h

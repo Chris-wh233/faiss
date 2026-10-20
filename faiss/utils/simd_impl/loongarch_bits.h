@@ -46,6 +46,12 @@ struct LoongArchBits<SIMDLevel::LOONGARCH_LSX> {
         v = __lsx_vadd_d(v, __lsx_vbsrl_v(v, 8));
         return static_cast<uint64_t>(__lsx_vpickve2gr_d(v, 0));
     }
+    static uint32_t bit_plane(Register value, int plane) {
+        const auto bits = __lsx_vmskltz_b(
+                __lsx_vsll_b(value, __lsx_vreplgr2vr_b(7 - plane)));
+        uint32_t mask = static_cast<uint32_t>(__lsx_vpickve2gr_w(bits, 0));
+        return mask;
+    }
     static uint64_t different_bytes(Register a, Register b) {
         auto equal = __lsx_vseq_b(a, b);
         // Exactly one bit per unequal byte before the native population count.
@@ -81,6 +87,13 @@ struct LoongArchBits<SIMDLevel::LOONGARCH_LASX> {
         v = __lasx_xvadd_d(v, __lasx_xvpermi_q(v, v, 0x01));
         v = __lasx_xvadd_d(v, __lasx_xvbsrl_v(v, 8));
         return static_cast<uint64_t>(__lasx_xvpickve2gr_d(v, 0));
+    }
+    static uint32_t bit_plane(Register value, int plane) {
+        const auto bits = __lasx_xvmskltz_b(
+                __lasx_xvsll_b(value, __lasx_xvreplgr2vr_b(7 - plane)));
+        uint32_t mask = static_cast<uint32_t>(__lasx_xvpickve2gr_w(bits, 0));
+        mask |= static_cast<uint32_t>(__lasx_xvpickve2gr_w(bits, 4)) << 16;
+        return mask;
     }
     static uint64_t different_bytes(Register a, Register b) {
         auto equal = __lasx_xvseq_b(a, b);

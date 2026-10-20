@@ -642,7 +642,8 @@ struct RaBitQDistanceComputerQ final : RaBitQDistanceComputer {
 
         rearranged_rotated_qq.resize(offset * qb);
         with_selected_simd_levels<
-                AVAILABLE_SIMD_LEVELS_NONE | (1 << int(SIMDLevel::AVX2)) |
+                AVAILABLE_SIMD_LEVELS_NONE | AVAILABLE_SIMD_LEVELS_LOONGARCH |
+                (1 << int(SIMDLevel::AVX2)) |
                 (1 << int(SIMDLevel::AVX512))>([&]<SIMDLevel RSL>() {
             rabitq::rearrange_bit_planes<RSL>(
                     rotated_qq.data(), d, qb, rearranged_rotated_qq.data());
@@ -724,7 +725,9 @@ FlatCodesDistanceComputer* RaBitQuantizer::get_distance_computer(
     // VPOPCNT rather than SPR: Ice Lake and Zen 4 have VPOPCNTDQ without the
     // rest of the SPR feature set. Below it, dispatch falls through to
     // rabitq_avx512.cpp.
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT>(
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> FlatCodesDistanceComputer* {
                 if (qb == 0) {
                     auto dc =
