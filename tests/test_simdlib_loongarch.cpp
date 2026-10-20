@@ -9,6 +9,7 @@
 #include <sys/auxv.h>
 
 // Keep the hardware checks in a baseline translation unit.
+#ifdef FAISS_TEST_LSX
 void test_simdlib_lsx();
 TEST(TestSIMDLibLoongArch, LSX) {
     if (!(getauxval(AT_HWCAP) & (1UL << 4))) {
@@ -16,6 +17,8 @@ TEST(TestSIMDLibLoongArch, LSX) {
     }
     test_simdlib_lsx();
 }
+
+#endif
 
 #ifdef FAISS_TEST_LASX
 void test_simdlib_lasx();

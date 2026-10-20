@@ -76,6 +76,26 @@ set(FAISS_SIMD_RVV_SRC
   utils/hamming_distance/hamming_rvv.cpp
   utils/simd_impl/rabitq_rvv.cpp
 )
+set(FAISS_SIMD_LSX_SRC utils/simd_impl/distances_lsx.cpp)
+set(FAISS_SIMD_LASX_SRC utils/simd_impl/distances_lasx.cpp)
+
+# Optional LoongArch extensions are compiled in separate translation units.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  include(CheckCXXSourceCompiles)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+  set(CMAKE_REQUIRED_FLAGS "-mlsx -mno-lasx")
+  check_cxx_source_compiles("#include <lsxintrin.h>
+    int main() { return __lsx_vpickve2gr_w(__lsx_vldi(0), 0); }"
+    FAISS_HAVE_LSX)
+  set(CMAKE_REQUIRED_FLAGS "-mlasx")
+  check_cxx_source_compiles("#include <lasxintrin.h>
+    int main() { return __lasx_xvpickve2gr_w(__lasx_xvldi(0), 0); }"
+    FAISS_HAVE_LASX)
+  cmake_pop_check_state()
+endif()
+
 # Select SIMD sources based on target architecture
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|amd64|AMD64)")
   set(FAISS_SIMD_SRC
@@ -87,6 +107,15 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64|arm64|ARM64)")
   set(FAISS_SIMD_SRC ${FAISS_SIMD_NEON_SRC} ${FAISS_SIMD_SVE_SRC})
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(riscv64|riscv)")
   set(FAISS_SIMD_SRC ${FAISS_SIMD_RVV_SRC})
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+       CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  set(FAISS_SIMD_SRC "")
+  if(FAISS_HAVE_LSX)
+    list(APPEND FAISS_SIMD_SRC ${FAISS_SIMD_LSX_SRC})
+  endif()
+  if(FAISS_HAVE_LASX)
+    list(APPEND FAISS_SIMD_SRC ${FAISS_SIMD_LASX_SRC})
+  endif()
 else()
   set(FAISS_SIMD_SRC "")
 endif()
@@ -413,6 +442,7 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h
+  utils/simd_impl/distances_loongarch-inl.h
   utils/simd_impl/distances_simdlib256.h
   utils/hamming_distance/hamming_impl.h
   utils/simd_impl/exhaustive_L2sqr_blas_cmax.h
@@ -610,6 +640,18 @@ if(FAISS_OPT_LEVEL STREQUAL "dd")
       TARGET_DIRECTORY faiss
       PROPERTIES COMPILE_OPTIONS "-march=armv8.2-a+sve"
     )
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+         CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+    if(FAISS_HAVE_LSX)
+      target_compile_definitions(faiss PRIVATE COMPILE_SIMD_LOONGARCH_LSX)
+      set_source_files_properties(${FAISS_SIMD_LSX_SRC}
+        TARGET_DIRECTORY faiss PROPERTIES COMPILE_OPTIONS "-mlsx;-mno-lasx")
+    endif()
+    if(FAISS_HAVE_LASX)
+      target_compile_definitions(faiss PRIVATE COMPILE_SIMD_LOONGARCH_LASX)
+      set_source_files_properties(${FAISS_SIMD_LASX_SRC}
+        TARGET_DIRECTORY faiss PROPERTIES COMPILE_OPTIONS "-mlasx")
+    endif()
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(riscv64|riscv)")
     target_compile_definitions(faiss PRIVATE COMPILE_SIMD_RISCV_RVV)
     if(FAISS_SIMD_RVV_SRC)

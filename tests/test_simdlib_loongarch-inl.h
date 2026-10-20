@@ -75,10 +75,12 @@ void check_simdlib() {
         EXPECT_EQ(a.all_gt(t), ar.all_gt(tr));
         EXPECT_EQ(cmp_ge32(a, b, t), cmp_ge32(ar, br, tr));
         EXPECT_EQ(cmp_le32(a, b, t), cmp_le32(ar, br, tr));
-        for (int shift = 0; shift <= 16; ++shift) {
+        for (int shift = 0; shift < 16; ++shift) {
             expect_bits(a >> shift, ar >> shift);
             expect_bits(a << shift, ar << shift);
         }
+        expect_bits(a << 16, simd16uint16_tpl<NONE>(0));
+        expect_bits(a >> 16, simd16uint16_tpl<NONE>(0));
         expect_bits(min(a, b), min(ar, br));
         expect_bits(max(a, b), max(ar, br));
         expect_bits(hadd(a, b), hadd(ar, br));
