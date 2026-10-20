@@ -167,7 +167,7 @@ DistanceComputer* IndexBinaryHNSW::get_distance_computer() const {
     FAISS_THROW_IF_MSG(
             flat_storage == nullptr,
             "IndexBinaryHNSW requires IndexBinaryFlat storage");
-    return with_simd_level([&]<SIMDLevel SL>() {
+    return with_hamming_simd_level([&]<SIMDLevel SL>() {
         return make_binary_hnsw_distance_computer_fixSL<SL>(
                 code_size, flat_storage);
     });

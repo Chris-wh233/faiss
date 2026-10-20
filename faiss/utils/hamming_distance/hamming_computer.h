@@ -16,9 +16,22 @@
 #ifndef FAISS_hamming_computer_h
 #define FAISS_hamming_computer_h
 
+#include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/hamming_distance/common.h>
 
 namespace faiss {
+template <typename F>
+inline auto with_hamming_simd_level(F&& action) {
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            std::forward<F>(action));
+}
+template <typename F>
+inline auto with_hamming_simd_level_with_vpopcnt(F&& action) {
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(std::forward<F>(action));
+}
 
 /***************************************************************************
  * HammingComputer primary templates.

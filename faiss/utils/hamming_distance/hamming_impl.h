@@ -494,6 +494,19 @@ void hammings_ragged_fixSL<THE_SIMD_LEVEL>(
         size_t nb,
         size_t ncodes,
         hamdis_t* dis) {
+    if constexpr (
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LSX ||
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LASX) {
+        with_HammingComputer<THE_SIMD_LEVEL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < na; ++i) {
+                HC hc(a + i * ncodes, ncodes);
+                for (size_t j = 0; j < nb; ++j)
+                    dis[i * nb + j] = hc.hamming(b + j * ncodes);
+            }
+        });
+        return;
+    }
+
     hammings_ragged_dispatch(a, b, na, nb, ncodes, dis);
 }
 
@@ -505,6 +518,20 @@ void hammings_fixSL<THE_SIMD_LEVEL>(
         size_t nb,
         size_t ncodes,
         hamdis_t* dis) {
+    if constexpr (
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LSX ||
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LASX) {
+        FAISS_THROW_IF_NOT(ncodes % 8 == 0);
+        with_HammingComputer<THE_SIMD_LEVEL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < na; ++i) {
+                HC hc(a + i * ncodes, ncodes);
+                for (size_t j = 0; j < nb; ++j)
+                    dis[i * nb + j] = hc.hamming(b + j * ncodes);
+            }
+        });
+        return;
+    }
+
     FAISS_THROW_IF_NOT(ncodes % 8 == 0);
     switch (ncodes) {
         case 8:
@@ -545,6 +572,27 @@ void hamming_count_thres_fixSL<THE_SIMD_LEVEL>(
         hamdis_t ht,
         size_t ncodes,
         size_t* nptr) {
+    if constexpr (
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LSX ||
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LASX) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<THE_SIMD_LEVEL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n1; ++i) {
+                HC hc(bs1 + i * ncodes, ncodes);
+                for (size_t j = 0; j < n2; ++j) {
+                    const auto distance = hc.hamming(bs2 + j * ncodes);
+                    if (distance <= ht) {
+                        ++count;
+                    }
+                }
+            }
+        });
+        *nptr = count;
+        return;
+    }
+
     switch (ncodes) {
         case 8:
             hamming_count_thres_impl<64>(C64(bs1), C64(bs2), n1, n2, ht, nptr);
@@ -570,6 +618,23 @@ void crosshamming_count_thres_fixSL<THE_SIMD_LEVEL>(
         hamdis_t ht,
         size_t ncodes,
         size_t* nptr) {
+    if constexpr (
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LSX ||
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LASX) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<THE_SIMD_LEVEL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n; ++i) {
+                HC hc(dbs + i * ncodes, ncodes);
+                for (size_t j = i + 1; j < n; ++j)
+                    count += hc.hamming(dbs + j * ncodes) <= ht;
+            }
+        });
+        *nptr = count;
+        return;
+    }
+
     switch (ncodes) {
         case 8:
             crosshamming_count_thres_impl<64>(C64(dbs), n, ht, nptr);
@@ -598,6 +663,29 @@ size_t match_hamming_thres_fixSL<THE_SIMD_LEVEL>(
         size_t ncodes,
         int64_t* idx,
         hamdis_t* dis) {
+    if constexpr (
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LSX ||
+            THE_SIMD_LEVEL == SIMDLevel::LOONGARCH_LASX) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<THE_SIMD_LEVEL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n1; ++i) {
+                HC hc(bs1 + i * ncodes, ncodes);
+                for (size_t j = 0; j < n2; ++j) {
+                    const auto distance = hc.hamming(bs2 + j * ncodes);
+                    if (distance <= ht) {
+                        idx[2 * count] = i;
+                        idx[2 * count + 1] = j;
+                        dis[count] = distance;
+                        ++count;
+                    }
+                }
+            }
+        });
+        return count;
+    }
+
     switch (ncodes) {
         case 8:
             return match_hamming_thres_impl<64>(

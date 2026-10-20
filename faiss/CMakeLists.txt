@@ -76,8 +76,16 @@ set(FAISS_SIMD_RVV_SRC
   utils/hamming_distance/hamming_rvv.cpp
   utils/simd_impl/rabitq_rvv.cpp
 )
-set(FAISS_SIMD_LSX_SRC utils/simd_impl/distances_lsx.cpp)
-set(FAISS_SIMD_LASX_SRC utils/simd_impl/distances_lasx.cpp)
+set(FAISS_SIMD_LSX_SRC
+  utils/simd_impl/distances_lsx.cpp
+  utils/hamming_distance/hamming_lsx.cpp
+  impl/binary_hamming/lsx.cpp
+)
+set(FAISS_SIMD_LASX_SRC
+  utils/simd_impl/distances_lasx.cpp
+  utils/hamming_distance/hamming_lasx.cpp
+  impl/binary_hamming/lasx.cpp
+)
 
 # Optional LoongArch extensions are compiled in separate translation units.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
@@ -439,6 +447,8 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-avx512.h
   utils/hamming_distance/hamming_computer-avx512_vpopcnt.h
   utils/hamming_distance/hamming_computer-generic.h
+  utils/hamming_distance/hamming_computer-loongarch.h
+  utils/simd_impl/loongarch_bits.h
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h

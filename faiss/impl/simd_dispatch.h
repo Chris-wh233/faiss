@@ -51,6 +51,11 @@ constexpr int AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR =
 constexpr int AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE =
         AVAILABLE_SIMD_LEVELS_BASE | (1 << int(SIMDLevel::ARM_SVE));
 
+// Optional LoongArch backends are added to individual kernel-family masks.
+constexpr int AVAILABLE_SIMD_LEVELS_LOONGARCH =
+        (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
+
 constexpr int AVAILABLE_SIMD_LEVELS_ALL = -1;
 
 constexpr SIMDLevel get_simd_fallback(SIMDLevel level) {
