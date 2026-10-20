@@ -81,12 +81,14 @@ set(FAISS_SIMD_LSX_SRC
   utils/hamming_distance/hamming_lsx.cpp
   impl/binary_hamming/lsx.cpp
   utils/simd_impl/rabitq_lsx.cpp
+  impl/scalar_quantizer/sq-lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/distances_lasx.cpp
   utils/hamming_distance/hamming_lasx.cpp
   impl/binary_hamming/lasx.cpp
   utils/simd_impl/rabitq_lasx.cpp
+  impl/scalar_quantizer/sq-lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.
@@ -361,6 +363,8 @@ set(FAISS_HEADERS
   impl/ResultHandler.h
   impl/ScalarQuantizer.h
   impl/expanded_scanners.h
+  impl/scalar_quantizer/sq-loongarch.h
+  impl/scalar_quantizer/sq-loongarch-ops.h
   impl/scalar_quantizer/codecs.h
   impl/scalar_quantizer/distance_computers.h
   impl/scalar_quantizer/quantizers.h

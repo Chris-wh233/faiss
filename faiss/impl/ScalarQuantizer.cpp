@@ -646,7 +646,9 @@ ScalarQuantizer::SQuantizer* ScalarQuantizer::select_quantizer() const {
     // A SIMD level's factory returns nullptr when the dimension is
     // incompatible (e.g. AVX-512 needs d % 16 == 0); the dispatcher then falls
     // back to the next-lower level (AVX-512 -> AVX2 -> scalar).
-    return with_simd_level_fallback<AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR>(
+    return with_simd_level_fallback<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> SQuantizer* {
                 return scalar_quantizer::sq_select_quantizer<SL>(
                         qtype, d, trained);
