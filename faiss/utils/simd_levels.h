@@ -117,7 +117,8 @@ struct simd512_level_selector {
     static constexpr SIMDLevel value =
             (SL == SIMDLevel::AVX512_SPR || SL == SIMDLevel::AVX512_VPOPCNT)
             ? SIMDLevel::AVX512
-            : (SL == SIMDLevel::RISCV_RVV || SL == SIMDLevel::LOONGARCH_LSX)
+            : (SL == SIMDLevel::RISCV_RVV || SL == SIMDLevel::LOONGARCH_LSX ||
+               SL == SIMDLevel::LOONGARCH_LASX)
             ? SIMDLevel::NONE
             : SL;
 };
@@ -144,7 +145,7 @@ constexpr int simd_width() {
         return 16;
     } else if constexpr (
             SL == SIMDLevel::AVX2 || SL == SIMDLevel::ARM_NEON ||
-            SL == SIMDLevel::LOONGARCH_LSX) {
+            SL == SIMDLevel::LOONGARCH_LSX || SL == SIMDLevel::LOONGARCH_LASX) {
         return 8;
     } else {
         return 1;

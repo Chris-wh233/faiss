@@ -16,3 +16,13 @@ TEST(TestSIMDLibLoongArch, LSX) {
     }
     test_simdlib_lsx();
 }
+
+#ifdef FAISS_TEST_LASX
+void test_simdlib_lasx();
+TEST(TestSIMDLibLoongArch, LASX) {
+    if (!(getauxval(AT_HWCAP) & (1UL << 5))) {
+        GTEST_SKIP() << "LASX is unavailable";
+    }
+    test_simdlib_lasx();
+}
+#endif

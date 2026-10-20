@@ -101,10 +101,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-mlsx;-mno-lasx" FAISS_COMPILER_SUPPORTS_LSX)
+  check_cxx_compiler_flag("-mlasx" FAISS_COMPILER_SUPPORTS_LASX)
   if(FAISS_COMPILER_SUPPORTS_LSX)
     list(APPEND FAISS_TEST_SRC test_simdlib_loongarch.cpp test_simdlib_lsx.cpp)
     set_source_files_properties(test_simdlib_lsx.cpp
       PROPERTIES COMPILE_OPTIONS "-mlsx;-mno-lasx")
+    if(FAISS_COMPILER_SUPPORTS_LASX)
+      list(APPEND FAISS_TEST_SRC test_simdlib_lasx.cpp)
+      set_source_files_properties(test_simdlib_lasx.cpp
+        PROPERTIES COMPILE_OPTIONS "-mlasx")
+      set_source_files_properties(test_simdlib_loongarch.cpp
+        PROPERTIES COMPILE_DEFINITIONS FAISS_TEST_LASX)
+    endif()
   endif()
 endif()
 
