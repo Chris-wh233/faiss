@@ -5,7 +5,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <faiss/IndexFlat.h>
+#include <faiss/IndexScalarQuantizer.h>
+#include <faiss/impl/IDSelector.h>
 #include <faiss/impl/ScalarQuantizer.h>
+#include <faiss/impl/scalar_quantizer/distance_computers.h>
 #include <faiss/impl/scalar_quantizer/quantizers.h>
 #include <faiss/utils/simd_levels.h>
 #include <gtest/gtest.h>
@@ -122,13 +126,134 @@ void check_codec() {
         }
     }
 }
+template <SIMDLevel SL>
+void check_distances() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    struct Guard {
+        SIMDLevel saved = SIMDConfig::get_level();
+        ~Guard() {
+            SIMDConfig::set_level(saved);
+        }
+    } guard;
+    std::mt19937 rng(919);
+    for (auto qt : types)
+        for (size_t d : {1, 7, 8, 9, 16, 17, 32, 65}) {
+            SCOPED_TRACE(int(qt));
+            SCOPED_TRACE(d);
+            ScalarQuantizer sq(d, qt);
+            sq.trained.resize(2 * d, 1);
+            for (size_t i = 0; i < d; ++i)
+                sq.trained[i] = -1;
+            if (qt == ScalarQuantizer::QT_4bit_uniform ||
+                qt == ScalarQuantizer::QT_8bit_uniform) {
+                sq.trained[0] = -1;
+                sq.trained[1] = 2;
+            }
+            std::vector<float> x(2 * d), query(d);
+            for (auto& v : x)
+                v = float(rng() % 1000) / 1000;
+            for (auto& v : query)
+                v = float(rng() % 1000) / 1000;
+            if (qt == ScalarQuantizer::QT_8bit_direct ||
+                qt == ScalarQuantizer::QT_8bit_direct_signed)
+                for (auto& v : x)
+                    v = std::floor(v * 100);
+            std::vector<uint8_t> codes(2 * sq.code_size);
+            SIMDConfig::set_level(SL);
+            sq.compute_codes(x.data(), codes.data(), 2);
+            for (auto metric : {METRIC_L2, METRIC_INNER_PRODUCT}) {
+                std::unique_ptr<ScalarQuantizer::SQDistanceComputer> ref(
+                        scalar_quantizer::sq_select_distance_computer<
+                                SIMDLevel::NONE>(metric, qt, d, sq.trained));
+                std::unique_ptr<ScalarQuantizer::SQDistanceComputer> simd(
+                        scalar_quantizer::sq_select_distance_computer<SL>(
+                                metric, qt, d, sq.trained));
+                ASSERT_NE(simd, nullptr);
+                for (auto dc : {ref.get(), simd.get()}) {
+                    dc->set_query(query.data());
+                    dc->codes = codes.data();
+                    dc->code_size = sq.code_size;
+                }
+                for (int j = 0; j < 2; ++j) {
+                    float expected =
+                            ref->query_to_code(codes.data() + j * sq.code_size);
+                    EXPECT_NEAR(
+                            simd->query_to_code(
+                                    codes.data() + j * sq.code_size),
+                            expected,
+                            2e-5f * std::abs(expected) + 1e-6f);
+                }
+                float expected = ref->symmetric_dis(0, 1);
+                EXPECT_NEAR(
+                        simd->symmetric_dis(0, 1),
+                        expected,
+                        2e-5f * std::abs(expected) + 1e-6f);
+            }
+        }
+    for (auto qt : types)
+        for (auto metric : {METRIC_L2, METRIC_INNER_PRODUCT})
+            for (bool residual : {false, true}) {
+                constexpr int d = 17, nb = 83, nq = 5, k = 7;
+                IndexFlat coarse(d, metric);
+                std::vector<float> centroid(d, 0.125f);
+                coarse.add(1, centroid.data());
+                IndexIVFScalarQuantizer index(
+                        &coarse, d, 1, qt, metric, residual);
+                index.sq.trained.resize(2 * d, 2);
+                for (int i = 0; i < d; ++i)
+                    index.sq.trained[i] = -1;
+                if (qt == ScalarQuantizer::QT_4bit_uniform ||
+                    qt == ScalarQuantizer::QT_8bit_uniform) {
+                    index.sq.trained[0] = -1;
+                    index.sq.trained[1] = 2;
+                }
+                index.is_trained = true;
+                std::vector<float> xb(nb * d), xq(nq * d);
+                for (auto& v : xb)
+                    v = float(rng() % 1000) / 1000;
+                for (auto& v : xq)
+                    v = float(rng() % 1000) / 1000;
+                if (qt == ScalarQuantizer::QT_8bit_direct ||
+                    qt == ScalarQuantizer::QT_8bit_direct_signed)
+                    for (auto& v : xb)
+                        v = v * 100 + 1;
+                SIMDConfig::set_level(SL);
+                index.add(nb, xb.data());
+                IDSelectorRange sel(3, nb - 2);
+                SearchParametersIVF params;
+                params.sel = &sel;
+                std::vector<float> expected(nq * k), actual(nq * k);
+                std::vector<idx_t> ei(nq * k), ai(nq * k);
+                SIMDConfig::set_level(SIMDLevel::NONE);
+                index.search(
+                        nq, xq.data(), k, expected.data(), ei.data(), &params);
+                SIMDConfig::set_level(SL);
+                index.search(
+                        nq, xq.data(), k, actual.data(), ai.data(), &params);
+                for (size_t i = 0; i < actual.size(); ++i) {
+                    EXPECT_NEAR(
+                            actual[i],
+                            expected[i],
+                            std::abs(expected[i]) * 3e-5f + 1e-5f);
+                    EXPECT_EQ(ai[i], ei[i]);
+                }
+            }
+}
+
 } // namespace
 #ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchSQ, LSXDistances) {
+    check_distances<faiss::SIMDLevel::LOONGARCH_LSX>();
+}
 TEST(TestLoongArchSQ, LSXCodec) {
     check_codec<faiss::SIMDLevel::LOONGARCH_LSX>();
 }
 #endif
 #ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchSQ, LASXDistances) {
+    check_distances<faiss::SIMDLevel::LOONGARCH_LASX>();
+}
 TEST(TestLoongArchSQ, LASXCodec) {
     check_codec<faiss::SIMDLevel::LOONGARCH_LASX>();
 }

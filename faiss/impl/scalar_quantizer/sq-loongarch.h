@@ -8,6 +8,7 @@
 #pragma once
 #include <faiss/impl/scalar_quantizer/codecs.h>
 #include <faiss/impl/scalar_quantizer/quantizers.h>
+#include <faiss/impl/scalar_quantizer/scanners.h>
 #include <faiss/impl/scalar_quantizer/sq-loongarch-ops.h>
 namespace faiss::scalar_quantizer {
 namespace detail {
@@ -184,6 +185,62 @@ auto with_loongarch_quantizer(QuantizerType qt, Action action) {
                                     ScalarQuantizer::QT_8bit>>())(nullptr);
     }
 }
+template <class Quantizer, MetricType metric>
+struct LoongArchSQDistanceComputer : SQDistanceComputer {
+    using Vec = typename Quantizer::Vec;
+    struct Sim {
+        static constexpr MetricType metric_type = metric;
+    };
+    Quantizer quant;
+    LoongArchSQDistanceComputer(size_t d, const std::vector<float>& trained)
+            : quant(d, trained) {}
+    template <bool symmetric>
+    float distance(const float* x, const uint8_t* a, const uint8_t* b) const {
+        Vec acc(0.0f);
+        size_t i = 0;
+        for (; i + 8 <= quant.d; i += 8) {
+            Vec v = quant.reconstruct_8_components(a, i);
+            Vec u;
+            if constexpr (symmetric)
+                u = quant.reconstruct_8_components(b, i);
+            else
+                u = Vec(x + i);
+            if constexpr (metric == METRIC_L2) {
+                auto delta = u - v;
+                acc = fmadd(delta, delta, acc);
+            } else
+                acc = fmadd(u, v, acc);
+        }
+        float sum = horizontal_add(acc);
+        for (; i < quant.d; ++i) {
+            const float v = quant.reconstruct_component(a, i);
+            const float u =
+                    symmetric ? quant.reconstruct_component(b, i) : x[i];
+            if constexpr (metric == METRIC_L2) {
+                float delta = u - v;
+                sum += delta * delta;
+            } else
+                sum += u * v;
+        }
+        return sum;
+    }
+    float compute_distance(const float* x, const uint8_t* code) const {
+        return distance<false>(x, code, nullptr);
+    }
+    float compute_code_distance(const uint8_t* a, const uint8_t* b) const {
+        return distance<true>(nullptr, a, b);
+    }
+    void set_query(const float* x) final {
+        q = x;
+    }
+    float query_to_code(const uint8_t* code) const final {
+        return compute_distance(q, code);
+    }
+    float symmetric_dis(idx_t i, idx_t j) final {
+        return compute_code_distance(
+                codes + i * code_size, codes + j * code_size);
+    }
+};
 } // namespace detail
 
 template <>
@@ -195,5 +252,51 @@ ScalarQuantizer::SQuantizer* sq_select_quantizer<THE_SIMD_LEVEL>(
             qt, [&]<class Quantizer>() -> ScalarQuantizer::SQuantizer* {
                 return new Quantizer(d, trained);
             });
+}
+template <>
+SQDistanceComputer* sq_select_distance_computer<THE_SIMD_LEVEL>(
+        MetricType metric,
+        QuantizerType qt,
+        size_t d,
+        const std::vector<float>& trained) {
+    return detail::with_loongarch_quantizer<THE_SIMD_LEVEL>(
+            qt, [&]<class Quantizer>() -> SQDistanceComputer* {
+                if (metric == METRIC_L2)
+                    return new detail::
+                            LoongArchSQDistanceComputer<Quantizer, METRIC_L2>(
+                                    d, trained);
+                return new detail::LoongArchSQDistanceComputer<
+                        Quantizer,
+                        METRIC_INNER_PRODUCT>(d, trained);
+            });
+}
+template <>
+InvertedListScanner* sq_select_InvertedListScanner<THE_SIMD_LEVEL>(
+        QuantizerType qt,
+        MetricType metric,
+        size_t d,
+        size_t code_size,
+        const std::vector<float>& trained,
+        const Index* quantizer,
+        bool store_pairs,
+        const IDSelector* sel,
+        bool by_residual) {
+    return detail::with_loongarch_quantizer<
+            THE_SIMD_LEVEL>(qt, [&]<class Quantizer>() -> InvertedListScanner* {
+        if (metric == METRIC_L2)
+            return new IVFSQScannerL2<
+                    detail::LoongArchSQDistanceComputer<Quantizer, METRIC_L2>>(
+                    int(d),
+                    trained,
+                    code_size,
+                    quantizer,
+                    store_pairs,
+                    sel,
+                    by_residual);
+        return new IVFSQScannerIP<detail::LoongArchSQDistanceComputer<
+                Quantizer,
+                METRIC_INNER_PRODUCT>>(
+                int(d), trained, code_size, store_pairs, sel, by_residual);
+    });
 }
 } // namespace faiss::scalar_quantizer

@@ -685,7 +685,9 @@ void ScalarQuantizer::decode(const uint8_t* codes, float* x, size_t n) const {
 ScalarQuantizer::SQDistanceComputer* ScalarQuantizer::get_distance_computer(
         MetricType metric) const {
     FAISS_THROW_IF_NOT(metric == METRIC_L2 || metric == METRIC_INNER_PRODUCT);
-    return with_simd_level_fallback<AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR>(
+    return with_simd_level_fallback<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> SQDistanceComputer* {
                 return scalar_quantizer::sq_select_distance_computer<SL>(
                         metric, qtype, d, trained);
@@ -698,7 +700,9 @@ InvertedListScanner* ScalarQuantizer::select_InvertedListScanner(
         bool store_pairs,
         const IDSelector* sel,
         bool by_residual) const {
-    return with_simd_level_fallback<AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR>(
+    return with_simd_level_fallback<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SPR |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> InvertedListScanner* {
                 return scalar_quantizer::sq_select_InvertedListScanner<SL>(
                         qtype,
