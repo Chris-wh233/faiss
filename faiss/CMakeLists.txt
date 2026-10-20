@@ -388,6 +388,7 @@ set(FAISS_HEADERS
   impl/simdlib/simdlib_avx2.h
   impl/simdlib/simdlib_avx512.h
   impl/simdlib/simdlib_emulated.h
+  impl/simdlib/simdlib_lsx.h
   impl/simdlib/simdlib_neon.h
   impl/simdlib/simdlib_ppc64.h
   utils/utils.h

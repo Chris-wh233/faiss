@@ -117,8 +117,9 @@ struct simd512_level_selector {
     static constexpr SIMDLevel value =
             (SL == SIMDLevel::AVX512_SPR || SL == SIMDLevel::AVX512_VPOPCNT)
             ? SIMDLevel::AVX512
-            : (SL == SIMDLevel::RISCV_RVV) ? SIMDLevel::NONE
-                                           : SL;
+            : (SL == SIMDLevel::RISCV_RVV || SL == SIMDLevel::LOONGARCH_LSX)
+            ? SIMDLevel::NONE
+            : SL;
 };
 
 /// SINGLE_SIMD_LEVEL mapped to 512-bit: use this for 512-bit simd types
@@ -141,7 +142,9 @@ constexpr int simd_width() {
             SL == SIMDLevel::AVX512 || SL == SIMDLevel::AVX512_VPOPCNT ||
             SL == SIMDLevel::AVX512_SPR) {
         return 16;
-    } else if constexpr (SL == SIMDLevel::AVX2 || SL == SIMDLevel::ARM_NEON) {
+    } else if constexpr (
+            SL == SIMDLevel::AVX2 || SL == SIMDLevel::ARM_NEON ||
+            SL == SIMDLevel::LOONGARCH_LSX) {
         return 8;
     } else {
         return 1;
