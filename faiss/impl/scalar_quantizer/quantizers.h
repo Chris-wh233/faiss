@@ -574,7 +574,7 @@ struct QuantizerTurboQuantFull<NBits, SIMDLevel::NONE>
         return idx;
     }
 
-    void encode_vector(const float* x, uint8_t* code) const final {
+    void encode_vector(const float* x, uint8_t* code) const override {
         float sqrt_d = std::sqrt(static_cast<float>(d));
         float inv_sqrt_d = 1.0f / sqrt_d;
 
@@ -617,7 +617,7 @@ struct QuantizerTurboQuantFull<NBits, SIMDLevel::NONE>
         factors->gamma = gamma;
     }
 
-    void decode_vector(const uint8_t* code, float* x) const final {
+    void decode_vector(const uint8_t* code, float* x) const override {
         float inv_sqrt_d = 1.0f / std::sqrt(static_cast<float>(d));
         float inv_sqrt_pd = 1.0f / std::sqrt(static_cast<float>(padded_d));
 

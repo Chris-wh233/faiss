@@ -643,6 +643,54 @@ EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
 }
 #endif
 
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+void compute_code_dot_lut_batch_8_lsx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LSX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lsx);
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+void compute_code_dot_lut_batch_8_lasx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LASX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lasx);
+}
+#endif
 } // namespace eden_distance
 
 namespace eden_utils {
@@ -875,7 +923,8 @@ EDENFlatCodesDistanceComputer* get_distance_computer(
     const size_t centroid_count = size_t{1} << sq.bits;
     FAISS_THROW_IF_NOT(sq.trained.size() >= centroid_count);
     const float* scalar_centroids = sq.trained.data();
-    return with_simd_level(
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> EDENFlatCodesDistanceComputer* {
                 return eden_distance::make_distance_computer_for_level<SL>(
                         metric_type, sq.d, sq.bits, scalar_centroids, centroid);

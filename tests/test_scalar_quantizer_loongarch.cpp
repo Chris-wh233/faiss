@@ -6,6 +6,7 @@
  */
 
 #include <faiss/IndexFlat.h>
+#include <faiss/impl/EDENQuantizer.h>
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/impl/IDSelector.h>
 #include <faiss/impl/ScalarQuantizer.h>
@@ -256,5 +257,215 @@ TEST(TestLoongArchSQ, LASXDistances) {
 }
 TEST(TestLoongArchSQ, LASXCodec) {
     check_codec<faiss::SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+namespace {
+template <SIMDLevel SL>
+void check_advanced_codecs() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    std::mt19937 rng(1234);
+    auto original = SIMDConfig::get_level();
+    struct Restore {
+        SIMDLevel level;
+        ~Restore() {
+            SIMDConfig::set_level(level);
+        }
+    } restore{original};
+    SIMDConfig::set_level(SL);
+    for (int bits = 1; bits <= 8; ++bits)
+        for (size_t d : {1, 3, 7, 8, 9, 17, 32, 65}) {
+            auto qt = QT(int(ScalarQuantizer::QT_1bit_eden) + bits - 1);
+            ScalarQuantizer sq(d, qt);
+            int k = 1 << bits;
+            sq.trained.resize(2 * k - 1);
+            for (int j = 0; j < k; ++j)
+                sq.trained[j] = float(j) - k / 2;
+            for (int j = 0; j < k - 1; ++j)
+                sq.trained[k + j] = sq.trained[j] + 0.5f;
+            std::unique_ptr<ScalarQuantizer::SQuantizer> ref(
+                    scalar_quantizer::sq_select_quantizer<SIMDLevel::NONE>(
+                            qt, d, sq.trained));
+            std::unique_ptr<ScalarQuantizer::SQuantizer> simd(
+                    scalar_quantizer::sq_select_quantizer<SL>(
+                            qt, d, sq.trained));
+            ASSERT_NE(simd, nullptr);
+            for (int trial = 0; trial < 8; ++trial) {
+                std::vector<float> x(d), a(d + 1, 77), b(d + 1, 77);
+                for (size_t j = 0; j < d; ++j) {
+                    x[j] = sq.trained[k + rng() % (k - 1)];
+                    if (trial % 3 == 1)
+                        x[j] = std::nextafter(x[j], -INFINITY);
+                    if (trial % 3 == 2)
+                        x[j] = std::nextafter(x[j], INFINITY);
+                }
+                std::vector<uint8_t> ca(sq.code_size + 1, 0), cb(ca);
+                ca.back() = cb.back() = 0xa5;
+                ref->encode_vector(x.data(), ca.data());
+                simd->encode_vector(x.data(), cb.data());
+                ASSERT_EQ(ca, cb) << bits << " " << d;
+                ref->decode_vector(ca.data(), a.data());
+                simd->decode_vector(ca.data(), b.data());
+                ASSERT_EQ(a, b);
+            }
+        }
+    for (int bits = 1; bits <= 8; ++bits)
+        for (size_t d : {8, 17, 32}) {
+            ScalarQuantizer sq(d, eden_utils::quantizer_type_for_bits(bits));
+            int k = 1 << bits;
+            sq.trained.resize(2 * k - 1);
+            for (int j = 0; j < k; ++j)
+                sq.trained[j] = (float(j) - float(k - 1) / 2) * 0.1f;
+            for (int j = 0; j < k - 1; ++j)
+                sq.trained[k + j] = (sq.trained[j] + sq.trained[j + 1]) * 0.5f;
+            std::vector<float> x(16 * d), q(d);
+            for (float& v : x)
+                v = float(int(rng() % 2001) - 1000) / 100;
+            for (float& v : q)
+                v = float(int(rng() % 2001) - 1000) / 100;
+            size_t cs = eden_utils::code_size(d, bits);
+            std::vector<uint8_t> codes(16 * cs);
+            for (auto metric : {METRIC_L2, METRIC_INNER_PRODUCT})
+                for (auto scale :
+                     {EDENScaleType_UNBIASED, EDENScaleType_BIASED}) {
+                    eden_utils::compute_codes(
+                            sq, metric, scale, x.data(), codes.data(), 16);
+                    SIMDConfig::set_level(SIMDLevel::NONE);
+                    std::unique_ptr<EDENFlatCodesDistanceComputer> ref(
+                            eden_utils::get_distance_computer(sq, metric));
+                    SIMDConfig::set_level(SL);
+                    std::unique_ptr<EDENFlatCodesDistanceComputer> simd(
+                            eden_utils::get_distance_computer(sq, metric));
+                    ref->codes = simd->codes = codes.data();
+                    ref->code_size = simd->code_size = cs;
+                    ref->set_query(q.data());
+                    simd->set_query(q.data());
+                    float actual[16];
+                    simd->consecutive_distances_batch_16(0, actual);
+                    for (int j = 0; j < 16; ++j) {
+                        float expected = (*ref)(j);
+                        EXPECT_NEAR(
+                                expected,
+                                actual[j],
+                                1e-4f * (1 + std::abs(expected)))
+                                << bits << " " << d;
+                    }
+                }
+        }
+    for (int bits = 2; bits <= 5; ++bits)
+        for (size_t d : {1, 3, 7, 8, 9, 16, 17, 32, 65})
+            for (int projection : {0, 2}) {
+                SCOPED_TRACE(bits);
+                SCOPED_TRACE(d);
+                SCOPED_TRACE(projection);
+                auto qt = QT(int(ScalarQuantizer::QT_2bit_tq) + bits - 2);
+                ScalarQuantizer sq(d, qt);
+                int k = 1 << (bits - 1);
+                sq.trained.resize(2 * k + 2);
+                for (int j = 0; j < k; ++j)
+                    sq.trained[j] = (float(j) - float(k - 1) / 2) * 0.5f;
+                for (int j = 0; j < k - 1; ++j)
+                    sq.trained[k + j] =
+                            (sq.trained[j] + sq.trained[j + 1]) * 0.5f;
+                ScalarQuantizer::TurboQuantRefine::pack_seed(
+                        123, sq.trained.data() + 2 * k - 1);
+                sq.trained[2 * k + 1] = projection;
+                std::unique_ptr<ScalarQuantizer::SQuantizer> ref(
+                        scalar_quantizer::sq_select_quantizer<SIMDLevel::NONE>(
+                                qt, d, sq.trained));
+                std::unique_ptr<ScalarQuantizer::SQuantizer> simd(
+                        scalar_quantizer::sq_select_quantizer<SL>(
+                                qt, d, sq.trained));
+                ASSERT_NE(simd, nullptr);
+                for (int trial = 0; trial < 5; ++trial) {
+                    std::vector<float> x(d), q(d), a(d + 1, 77), b(d + 1, 77);
+                    for (size_t j = 0; j < d; ++j) {
+                        x[j] = trial ? float(int(rng() % 2001) - 1000) / 100
+                                     : 0;
+                        q[j] = float(int(rng() % 2001) - 1000) / 100;
+                    }
+                    std::vector<uint8_t> ca(sq.code_size + 1, 0), cb(ca);
+                    ca.back() = cb.back() = 0xa5;
+                    ref->encode_vector(x.data(), ca.data());
+                    simd->encode_vector(x.data(), cb.data());
+                    // Packed bit planes are exact; residual norms may differ by
+                    // the
+                    // final rounding of a fused multiply-subtract.
+                    EXPECT_TRUE(
+                            std::equal(
+                                    ca.begin(),
+                                    ca.begin() + sq.code_size - 8,
+                                    cb.begin()));
+                    EXPECT_EQ(ca.back(), cb.back());
+                    float ref_factors[2], simd_factors[2];
+                    memcpy(ref_factors, ca.data() + sq.code_size - 8, 8);
+                    memcpy(simd_factors, cb.data() + sq.code_size - 8, 8);
+                    for (int f = 0; f < 2; ++f)
+                        EXPECT_NEAR(
+                                ref_factors[f],
+                                simd_factors[f],
+                                2e-6f * (1 + std::abs(ref_factors[f])));
+                    ref->decode_vector(ca.data(), a.data());
+                    simd->decode_vector(ca.data(), b.data());
+                    for (size_t j = 0; j <= d; ++j)
+                        EXPECT_NEAR(a[j], b[j], 1e-5 * (1 + std::abs(a[j])));
+                    for (auto metric : {METRIC_L2, METRIC_INNER_PRODUCT}) {
+                        std::unique_ptr<ScalarQuantizer::SQDistanceComputer>
+                                rdc(scalar_quantizer::
+                                            sq_select_distance_computer<
+                                                    SIMDLevel::NONE>(
+                                                    metric, qt, d, sq.trained));
+                        std::unique_ptr<ScalarQuantizer::SQDistanceComputer>
+                                vdc(scalar_quantizer::
+                                            sq_select_distance_computer<SL>(
+                                                    metric, qt, d, sq.trained));
+                        ASSERT_NE(vdc, nullptr);
+                        auto* r =
+                                dynamic_cast<ScalarQuantizer::TurboQuantRefine::
+                                                     DistanceComputer*>(
+                                        rdc.get());
+                        auto* v =
+                                dynamic_cast<ScalarQuantizer::TurboQuantRefine::
+                                                     DistanceComputer*>(
+                                        vdc.get());
+                        ASSERT_NE(v, nullptr);
+                        for (uint8_t qb : {0, 1, 4, 8})
+                            for (bool iq : {false, true}) {
+                                r->configure(qb, iq);
+                                v->configure(qb, iq);
+                                r->set_query(q.data());
+                                v->set_query(q.data());
+                                float expected = r->query_to_code(ca.data());
+                                EXPECT_NEAR(
+                                        expected,
+                                        v->query_to_code(ca.data()),
+                                        2e-4 * (1 + std::abs(expected)))
+                                        << int(qb) << " " << iq;
+                                float threshold =
+                                        metric == METRIC_L2 ? -1e20f : 1e20f;
+                                r->set_prescreen_threshold(
+                                        &threshold, metric == METRIC_L2);
+                                v->set_prescreen_threshold(
+                                        &threshold, metric == METRIC_L2);
+                                EXPECT_EQ(
+                                        r->query_to_code(ca.data()),
+                                        v->query_to_code(ca.data()));
+                                r->clear_prescreen_threshold();
+                                v->clear_prescreen_threshold();
+                            }
+                    }
+                }
+            }
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchScalarQuantizer, AdvancedLSX) {
+    check_advanced_codecs<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchScalarQuantizer, AdvancedLASX) {
+    check_advanced_codecs<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

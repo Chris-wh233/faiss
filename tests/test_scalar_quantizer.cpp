@@ -85,7 +85,9 @@ std::vector<faiss::SIMDLevel> available_lloyd_max_simd_levels() {
     for (faiss::SIMDLevel level :
          {faiss::SIMDLevel::AVX512,
           faiss::SIMDLevel::AVX2,
-          faiss::SIMDLevel::ARM_NEON}) {
+          faiss::SIMDLevel::ARM_NEON,
+          faiss::SIMDLevel::LOONGARCH_LSX,
+          faiss::SIMDLevel::LOONGARCH_LASX}) {
         if (faiss::SIMDConfig::is_simd_level_available(level)) {
             levels.push_back(level);
         }
@@ -148,6 +150,16 @@ void expect_lloyd_max_simd_dispatch_fallback_for_incompatible_dim(
     auto* dc_raw = dc.get();
     auto* scanner_raw = scanner.get();
 
+    if (level == faiss::SIMDLevel::LOONGARCH_LSX ||
+        level == faiss::SIMDLevel::LOONGARCH_LASX) {
+        EXPECT_NE(
+                typeid(*quantizer_raw), typeid(ScalarLloydMaxQuantizer<NBits>));
+        EXPECT_NE(
+                typeid(*dc_raw),
+                typeid(ScalarLloydMaxL2DistanceComputer<NBits>));
+        EXPECT_NE(typeid(*scanner_raw), typeid(ScalarLloydMaxL2Scanner<NBits>));
+        return;
+    }
     EXPECT_EQ(typeid(*quantizer_raw), typeid(ScalarLloydMaxQuantizer<NBits>));
     EXPECT_EQ(typeid(*dc_raw), typeid(ScalarLloydMaxL2DistanceComputer<NBits>));
     EXPECT_EQ(typeid(*scanner_raw), typeid(ScalarLloydMaxL2Scanner<NBits>));

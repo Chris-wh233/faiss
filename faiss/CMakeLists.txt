@@ -82,6 +82,7 @@ set(FAISS_SIMD_LSX_SRC
   impl/binary_hamming/lsx.cpp
   utils/simd_impl/rabitq_lsx.cpp
   impl/scalar_quantizer/sq-lsx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lsx.cpp
   impl/pq_code_distance/lsx.cpp
   impl/fast_scan/impl-lsx.cpp
   impl/approx_topk/lsx.cpp
@@ -94,6 +95,7 @@ set(FAISS_SIMD_LASX_SRC
   impl/binary_hamming/lasx.cpp
   utils/simd_impl/rabitq_lasx.cpp
   impl/scalar_quantizer/sq-lasx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lasx.cpp
   impl/pq_code_distance/lasx.cpp
   impl/fast_scan/impl-lasx.cpp
   impl/approx_topk/lasx.cpp
@@ -373,6 +375,9 @@ set(FAISS_HEADERS
   impl/ResultHandler.h
   impl/ScalarQuantizer.h
   impl/expanded_scanners.h
+  impl/scalar_quantizer/sq-loongarch-lloyd-ops.h
+  impl/scalar_quantizer/sq-loongarch-advanced.h
+  impl/scalar_quantizer/sq-turboquant-dc.h
   impl/scalar_quantizer/sq-loongarch.h
   impl/scalar_quantizer/sq-loongarch-ops.h
   impl/scalar_quantizer/codecs.h
