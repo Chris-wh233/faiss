@@ -189,9 +189,6 @@ void IndexIVFPQFastScan::encode_vectors(
  * Look-Up Table functions
  *********************************************************/
 
-// Explicit SIMD-level alias (no global bare aliases).
-using simd8float32 = simd8float32_tpl<SINGLE_SIMD_LEVEL_256>;
-
 void fvec_madd_simd(
         size_t n,
         const float* a,
@@ -202,18 +199,7 @@ void fvec_madd_simd(
     FAISS_THROW_IF_NOT_MSG(is_aligned_pointer(b), "pointer b is not aligned");
     FAISS_THROW_IF_NOT_MSG(is_aligned_pointer(c), "pointer c is not aligned");
     FAISS_THROW_IF_NOT_MSG(n % 8 == 0, "n must be a multiple of 8");
-    simd8float32 bf8(bf);
-    n /= 8;
-    for (size_t i = 0; i < n; i++) {
-        simd8float32 ai(a);
-        simd8float32 bi(b);
-
-        simd8float32 ci = fmadd(bf8, bi, ai);
-        ci.store(c);
-        c += 8;
-        a += 8;
-        b += 8;
-    }
+    fvec_madd_dispatch(n, a, bf, b, c);
 }
 
 bool IndexIVFPQFastScan::lookup_table_is_3d() const {

@@ -25,6 +25,34 @@
 namespace faiss {
 namespace pq_code_distance {
 
+bool pq_scan_legacy(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap) {
+    return with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                return pq_scan_legacy_impl<SL>(
+                        M,
+                        nbits,
+                        table,
+                        rows,
+                        codes,
+                        ncodes,
+                        k,
+                        distances,
+                        labels,
+                        max_heap);
+            });
+}
+
 void pq_scan_8bit(
         size_t M,
         const float* dis_table,

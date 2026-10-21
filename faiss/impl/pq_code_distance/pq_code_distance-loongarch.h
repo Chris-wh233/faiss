@@ -8,6 +8,7 @@
 #pragma once
 #include <faiss/impl/pq_code_distance/pq_code_distance-inl.h>
 #include <faiss/impl/simdlib/simdlib_dispatch.h>
+#include <faiss/utils/Heap.h>
 namespace faiss::pq_code_distance {
 namespace detail {
 template <class Decoder, SIMDLevel SL>
@@ -106,5 +107,65 @@ void pq_code_distance_8bit_four_impl<THE_SIMD_LEVEL>(
         float& r3) {
     PQCodeDistance<PQDecoder8, THE_SIMD_LEVEL>::distance_four_codes(
             M, 8, table, c0, c1, c2, c3, r0, r1, r2, r3);
+}
+namespace {
+template <class C>
+void loongarch_scan_legacy(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels) {
+    using Vec = simd8float32_tpl<THE_SIMD_LEVEL>;
+    const size_t cs = (M * nbits + 7) / 8, ksub = size_t(1) << nbits;
+    for (size_t j = 0; j < ncodes; j += 8) {
+        const size_t count = std::min(size_t(8), ncodes - j);
+        // Packed field extraction and indexed loads are scalar; sums run across
+        // eight independent database codes, including small-M quantizers.
+        Vec sum(0.f);
+        for (size_t m = 0; m < M; ++m) {
+            float values[8] = {};
+            const float* row = rows ? rows[m] : table + m * ksub;
+            const size_t bit = m * nbits, byte = bit / 8, shift = bit % 8;
+            for (size_t lane = 0; lane < count; ++lane) {
+                const uint8_t* code = codes + (j + lane) * cs;
+                uint32_t raw = 0;
+                memcpy(&raw, code + byte, (shift + nbits + 7) / 8);
+                values[lane] = row[(raw >> shift) & (ksub - 1)];
+            }
+            sum = sum + Vec(values);
+        }
+        float result[8];
+        sum.storeu(result);
+        for (size_t lane = 0; lane < count; ++lane)
+            if (C::cmp(distances[0], result[lane]))
+                heap_replace_top<C>(
+                        k, distances, labels, result[lane], j + lane);
+    }
+}
+} // namespace
+template <>
+bool pq_scan_legacy_impl<THE_SIMD_LEVEL>(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap) {
+    if (max_heap)
+        loongarch_scan_legacy<CMax<float, int64_t>>(
+                M, nbits, table, rows, codes, ncodes, k, distances, labels);
+    else
+        loongarch_scan_legacy<CMin<float, int64_t>>(
+                M, nbits, table, rows, codes, ncodes, k, distances, labels);
+    return true;
 }
 } // namespace faiss::pq_code_distance

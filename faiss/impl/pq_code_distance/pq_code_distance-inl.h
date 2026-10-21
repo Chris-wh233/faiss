@@ -271,6 +271,60 @@ void pq_scan_8bit_impl(
 
 /// Scan all ncodes 8-bit PQ codes, dispatching to the best SIMD level.
 /// max_heap=true for L2 (CMax), false for IP (CMin).
+template <SIMDLevel SL>
+bool pq_scan_legacy_impl(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap) {
+    return false;
+}
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+template <>
+bool pq_scan_legacy_impl<SIMDLevel::LOONGARCH_LSX>(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+template <>
+bool pq_scan_legacy_impl<SIMDLevel::LOONGARCH_LASX>(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap);
+#endif
+FAISS_API bool pq_scan_legacy(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap);
+
 FAISS_API void pq_scan_8bit(
         size_t M,
         const float* dis_table,

@@ -25,6 +25,61 @@ void check_pq() {
         }
     } guard;
     std::mt19937 rng(144);
+    SIMDConfig::set_level(SL);
+    for (size_t bits : {1, 3, 5, 8, 10, 12, 16})
+        for (size_t M : {1, 7, 8, 9, 17})
+            for (size_t nc : {1, 7, 8, 9, 73}) {
+                SCOPED_TRACE(bits);
+                SCOPED_TRACE(M);
+                SCOPED_TRACE(nc);
+                size_t ksub = size_t(1) << bits, cs = (M * bits + 7) / 8,
+                       k = std::min(nc, size_t(5));
+                std::vector<float> table(M * ksub);
+                for (auto& v : table)
+                    v = float(int(rng() % 2001) - 1000) / 100;
+                std::vector<uint8_t> codes(nc * cs);
+                for (auto& v : codes)
+                    v = rng();
+                std::vector<const float*> rows(M);
+                for (size_t m = 0; m < M; ++m)
+                    rows[m] = table.data() + (M - 1 - m) * ksub;
+                for (bool use_rows : {false, true}) {
+                    std::vector<float> expected(k), actual(k);
+                    std::vector<int64_t> ei(k), ai(k);
+                    maxheap_heapify(k, expected.data(), ei.data());
+                    maxheap_heapify(k, actual.data(), ai.data());
+                    for (size_t j = 0; j < nc; ++j) {
+                        float dis = 0;
+                        for (size_t m = 0; m < M; ++m) {
+                            size_t bit = m * bits;
+                            uint32_t raw = 0;
+                            memcpy(&raw,
+                                   codes.data() + j * cs + bit / 8,
+                                   (bit % 8 + bits + 7) / 8);
+                            size_t idx = (raw >> (bit % 8)) & (ksub - 1);
+                            dis += (use_rows ? rows[m]
+                                             : table.data() + m * ksub)[idx];
+                        }
+                        if (expected[0] > dis)
+                            maxheap_replace_top(
+                                    k, expected.data(), ei.data(), dis, j);
+                    }
+                    ASSERT_TRUE(
+                            pq_code_distance::pq_scan_legacy(
+                                    M,
+                                    bits,
+                                    table.data(),
+                                    use_rows ? rows.data() : nullptr,
+                                    codes.data(),
+                                    nc,
+                                    k,
+                                    actual.data(),
+                                    ai.data(),
+                                    true));
+                    EXPECT_EQ(expected, actual);
+                    EXPECT_EQ(ei, ai);
+                }
+            }
     for (size_t M : {1, 7, 8, 9, 15, 16, 17, 33, 129}) {
         std::vector<float> table(M * 256);
         std::vector<uint8_t> codes(4 * M + 1);

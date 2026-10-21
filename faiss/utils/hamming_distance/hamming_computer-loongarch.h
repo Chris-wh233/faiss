@@ -229,4 +229,32 @@ struct GenHammingComputerM8_tpl<SIMDLevel::LOONGARCH_LASX>
     using Base::Base;
 };
 #endif
+#if defined(__loongarch_sx)
+template <>
+struct HammingComputer4_tpl<SIMDLevel::LOONGARCH_LSX>
+        : detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 4, false> {
+    using detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 4, false>::
+            LoongArchHammingFixed;
+};
+template <>
+struct HammingComputer8_tpl<SIMDLevel::LOONGARCH_LSX>
+        : detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 8, false> {
+    using detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 8, false>::
+            LoongArchHammingFixed;
+};
+#endif
+#if defined(__loongarch_asx)
+template <>
+struct HammingComputer4_tpl<SIMDLevel::LOONGARCH_LASX>
+        : detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 4, false> {
+    using detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 4, false>::
+            LoongArchHammingFixed;
+};
+template <>
+struct HammingComputer8_tpl<SIMDLevel::LOONGARCH_LASX>
+        : detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 8, false> {
+    using detail::LoongArchHammingFixed<SIMDLevel::LOONGARCH_LSX, 8, false>::
+            LoongArchHammingFixed;
+};
+#endif
 } // namespace faiss

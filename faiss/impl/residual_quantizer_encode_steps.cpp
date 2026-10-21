@@ -716,7 +716,9 @@ void compute_codes_add_centroids_mp_lut0(
         pool.norms.resize(n);
         // recover the norms of reconstruction as
         // || original_vector - residual ||^2
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_BASE |
+                AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
             for (size_t i = 0; i < n; i++) {
                 pool.norms[i] = fvec_L2sqr<SL>(
                         x + i * rq.d,

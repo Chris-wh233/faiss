@@ -134,13 +134,22 @@ struct HammingComputer8 {
  *   with_HammingComputer<SL>(code_size, [&]<class HammingComputer>() { ... });
  **************************************************************************/
 
+template <SIMDLevel SL>
+struct HammingComputer4_tpl : HammingComputer4 {
+    using HammingComputer4::HammingComputer4;
+};
+template <SIMDLevel SL>
+struct HammingComputer8_tpl : HammingComputer8 {
+    using HammingComputer8::HammingComputer8;
+};
+
 template <SIMDLevel SL, class F>
 decltype(auto) with_HammingComputer(int code_size, F&& f) {
     switch (code_size) {
         case 4:
-            return f.template operator()<HammingComputer4>();
+            return f.template operator()<HammingComputer4_tpl<SL>>();
         case 8:
-            return f.template operator()<HammingComputer8>();
+            return f.template operator()<HammingComputer8_tpl<SL>>();
         case 16:
             return f.template operator()<HammingComputer16_tpl<SL>>();
         case 20:

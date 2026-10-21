@@ -12,9 +12,20 @@
 #include <limits>
 
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/fvec_scale.h>
 #include <faiss/utils/extra_distances.h>
 
 namespace faiss {
+template <>
+void fvec_scale<THE_SIMD_LEVEL>(size_t d, float* x, float scale) {
+    FloatVec factor(scale);
+    size_t j = 0;
+    for (; j + FloatVec::width <= d; j += FloatVec::width)
+        (FloatVec(x + j) * factor).store(x + j);
+    for (; j < d; ++j)
+        x[j] *= scale;
+}
+
 namespace {
 
 // FloatVec is supplied by the LSX/LASX translation unit. All full registers

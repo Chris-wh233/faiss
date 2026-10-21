@@ -6,6 +6,7 @@
  */
 
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/fvec_scale.h>
 
 #include <algorithm>
 #include <cassert>
@@ -242,9 +243,7 @@ void fvec_renorm_L2_noomp(size_t d, size_t nx, float* __restrict x) {
             float nr = fvec_norm_L2sqr<SL>(xi, d);
             if (nr > 0) {
                 const float inv_nr = 1.0 / sqrtf(nr);
-                for (size_t j = 0; j < d; j++) {
-                    xi[j] *= inv_nr;
-                }
+                fvec_scale<SL>(d, xi, inv_nr);
             }
         }
     });
@@ -258,9 +257,7 @@ void fvec_renorm_L2_omp(size_t d, size_t nx, float* __restrict x) {
             float nr = fvec_norm_L2sqr<SL>(xi, d);
             if (nr > 0) {
                 const float inv_nr = 1.0 / sqrtf(nr);
-                for (size_t j = 0; j < d; j++) {
-                    xi[j] *= inv_nr;
-                }
+                fvec_scale<SL>(d, xi, inv_nr);
             }
         }
     });

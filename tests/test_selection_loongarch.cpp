@@ -10,6 +10,7 @@
 #include <faiss/utils/partitioning.h>
 #include <faiss/utils/distances_fused/distances_fused.h>
 #include <gtest/gtest.h>
+#include <faiss/impl/LocalSearchQuantizer.h>
 #include <faiss/impl/hnsw/MinimaxHeap.h>
 #include <faiss/utils/simd_impl/super_kmeans_kernels.h>
 #include <algorithm>
@@ -189,3 +190,28 @@ TEST(TestLoongArchSelection, GraphLASX) {
     check_graph<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif
+
+TEST(TestLoongArchSelection, LocalSearchDispatch) {
+    auto saved = faiss::SIMDConfig::get_level();
+    faiss::LocalSearchQuantizer quant(12, 3, 4);
+    constexpr size_t n = 5, M = 3, K = 16;
+    std::vector<float> unaries(M * n * K), binaries(M * M * K * K);
+    for (size_t i = 0; i < unaries.size(); ++i)
+        unaries[i] = float((i * 17) % 113) / 31;
+    for (size_t i = 0; i < binaries.size(); ++i)
+        binaries[i] = float((i * 13) % 149) / 47;
+    std::vector<int32_t> expected(n * M, 0);
+    faiss::SIMDConfig::set_level(faiss::SIMDLevel::NONE);
+    quant.icm_encode_step(
+            expected.data(), unaries.data(), binaries.data(), n, 3);
+    for (auto sl :
+         {faiss::SIMDLevel::LOONGARCH_LSX, faiss::SIMDLevel::LOONGARCH_LASX})
+        if (faiss::SIMDConfig::is_simd_level_available(sl)) {
+            std::vector<int32_t> actual(n * M, 0);
+            faiss::SIMDConfig::set_level(sl);
+            quant.icm_encode_step(
+                    actual.data(), unaries.data(), binaries.data(), n, 3);
+            EXPECT_EQ(expected, actual);
+        }
+    faiss::SIMDConfig::set_level(saved);
+}

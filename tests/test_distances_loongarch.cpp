@@ -176,3 +176,27 @@ TEST(TestLoongArchDistances, LASX) {
     check_distances<faiss::SIMDLevel::LOONGARCH_LASX>();
 }
 #endif
+
+TEST(TestLoongArchDistances, Renormalize) {
+    auto saved = faiss::SIMDConfig::get_level();
+    for (auto sl :
+         {faiss::SIMDLevel::LOONGARCH_LSX, faiss::SIMDLevel::LOONGARCH_LASX})
+        if (faiss::SIMDConfig::is_simd_level_available(sl)) {
+            faiss::SIMDConfig::set_level(sl);
+            for (size_t d : {1, 3, 4, 7, 8, 9, 17, 65}) {
+                std::vector<float> x(3 * d + 2, 123);
+                for (size_t j = 0; j < 3 * d; ++j)
+                    x[j + 1] = j < d ? 0.f : float(int(j % 11) - 5);
+                faiss::fvec_renorm_L2(d, 3, x.data() + 1);
+                EXPECT_EQ(x.front(), 123);
+                EXPECT_EQ(x.back(), 123);
+                for (size_t i = 0; i < 3; ++i) {
+                    double sum = 0;
+                    for (size_t j = 0; j < d; ++j)
+                        sum += double(x[1 + i * d + j]) * x[1 + i * d + j];
+                    EXPECT_NEAR(sum, i ? 1. : 0., 1e-6);
+                }
+            }
+        }
+    faiss::SIMDConfig::set_level(saved);
+}

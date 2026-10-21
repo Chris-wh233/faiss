@@ -16,24 +16,32 @@
 
 namespace faiss {
 
-// Explicit SIMD-level aliases for this file (no global bare aliases).
-using simd8uint32 = simd8uint32_tpl<SINGLE_SIMD_LEVEL_256>;
-using simd16uint16 = simd16uint16_tpl<SINGLE_SIMD_LEVEL_256>;
-
 // HeapWithBucketsForHamming32 uses simd8uint32 under the
 // hood.
 
-template <typename C, uint32_t NBUCKETS, uint32_t N, typename HammingComputerT>
+template <
+        typename C,
+        uint32_t NBUCKETS,
+        uint32_t N,
+        typename HammingComputerT,
+        SIMDLevel SL = SINGLE_SIMD_LEVEL_256>
 struct HeapWithBucketsForHamming32 {
     // this case was not implemented yet.
 };
 
-template <uint32_t NBUCKETS, uint32_t N, typename HammingComputerT>
+template <
+        uint32_t NBUCKETS,
+        uint32_t N,
+        typename HammingComputerT,
+        SIMDLevel SL>
 struct HeapWithBucketsForHamming32<
         CMax<int, int64_t>,
         NBUCKETS,
         N,
-        HammingComputerT> {
+        HammingComputerT,
+        SL> {
+    using simd8uint32 = simd8uint32_tpl<simd256_level_selector<SL>::value>;
+    using simd16uint16 = simd16uint16_tpl<simd256_level_selector<SL>::value>;
     static constexpr uint32_t NBUCKETS_8 = NBUCKETS / 8;
     static_assert(
             (NBUCKETS) > 0 && ((NBUCKETS % 8) == 0),
@@ -209,17 +217,29 @@ struct HeapWithBucketsForHamming32<
 // No more than 32K elements currently, but it can be reorganized a bit
 //   to be limited to 32K elements per beam.
 
-template <typename C, uint32_t NBUCKETS, uint32_t N, typename HammingComputerT>
+template <
+        typename C,
+        uint32_t NBUCKETS,
+        uint32_t N,
+        typename HammingComputerT,
+        SIMDLevel SL = SINGLE_SIMD_LEVEL_256>
 struct HeapWithBucketsForHamming16 {
     // this case was not implemented yet.
 };
 
-template <uint32_t NBUCKETS, uint32_t N, typename HammingComputerT>
+template <
+        uint32_t NBUCKETS,
+        uint32_t N,
+        typename HammingComputerT,
+        SIMDLevel SL>
 struct HeapWithBucketsForHamming16<
         CMax<int, int64_t>,
         NBUCKETS,
         N,
-        HammingComputerT> {
+        HammingComputerT,
+        SL> {
+    using simd8uint32 = simd8uint32_tpl<simd256_level_selector<SL>::value>;
+    using simd16uint16 = simd16uint16_tpl<simd256_level_selector<SL>::value>;
     static constexpr uint32_t NBUCKETS_16 = NBUCKETS / 16;
     static_assert(
             (NBUCKETS) > 0 && ((NBUCKETS % 16) == 0),

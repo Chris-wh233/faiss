@@ -24,6 +24,7 @@
 #include <faiss/impl/pq_code_distance/pq_code_distance-inl.h>
 #include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/distances.h>
+#include <faiss/utils/distances_dispatch.h>
 
 extern "C" {
 
@@ -731,55 +732,66 @@ void pq_knn_search_with_tables(
             heap_heapify<C>(k, heap_dis, heap_ids);
         }
 
-        switch (nbits) {
-            case 8:
-                if (ksub == 256) {
-                    constexpr bool max_heap =
-                            std::is_same_v<C, CMax<float, int64_t>>;
-                    pq_code_distance::pq_scan_8bit(
-                            M,
-                            dis_table,
-                            codes,
+        if (!pq_code_distance::pq_scan_legacy(
+                    M,
+                    nbits,
+                    dis_table,
+                    nullptr,
+                    codes,
+                    ncodes,
+                    k,
+                    heap_dis,
+                    heap_ids,
+                    std::is_same_v<C, CMax<float, int64_t>>))
+            switch (nbits) {
+                case 8:
+                    if (ksub == 256) {
+                        constexpr bool max_heap =
+                                std::is_same_v<C, CMax<float, int64_t>>;
+                        pq_code_distance::pq_scan_8bit(
+                                M,
+                                dis_table,
+                                codes,
+                                ncodes,
+                                k,
+                                heap_dis,
+                                heap_ids,
+                                max_heap);
+                    } else {
+                        pq_estimators_from_tables<uint8_t, C>(
+                                pq,
+                                codes,
+                                ncodes,
+                                dis_table,
+                                k,
+                                heap_dis,
+                                heap_ids);
+                    }
+                    break;
+
+                case 16:
+                    pq_estimators_from_tables<uint16_t, C>(
+                            pq,
+                            (uint16_t*)codes,
                             ncodes,
+                            dis_table,
                             k,
                             heap_dis,
-                            heap_ids,
-                            max_heap);
-                } else {
-                    pq_estimators_from_tables<uint8_t, C>(
+                            heap_ids);
+                    break;
+
+                default:
+                    pq_estimators_from_tables_generic<C>(
                             pq,
+                            nbits,
                             codes,
                             ncodes,
                             dis_table,
                             k,
                             heap_dis,
                             heap_ids);
-                }
-                break;
-
-            case 16:
-                pq_estimators_from_tables<uint16_t, C>(
-                        pq,
-                        (uint16_t*)codes,
-                        ncodes,
-                        dis_table,
-                        k,
-                        heap_dis,
-                        heap_ids);
-                break;
-
-            default:
-                pq_estimators_from_tables_generic<C>(
-                        pq,
-                        nbits,
-                        codes,
-                        ncodes,
-                        dis_table,
-                        k,
-                        heap_dis,
-                        heap_ids);
-                break;
-        }
+                    break;
+            }
 
         if (init_finalize_heap) {
             heap_reorder<C>(k, heap_dis, heap_ids);
@@ -898,16 +910,28 @@ void ProductQuantizer::search_sdc(
                         (size_t)qcode[m] * ksub;
             }
 
-            const uint8_t* bcode = bcodes;
-            for (size_t j = 0; j < nb; j++) {
-                float dis = 0;
-                for (size_t m = 0; m < M; m++) {
-                    dis += q_row[m][bcode[m]];
+            if (!pq_code_distance::pq_scan_legacy(
+                        M,
+                        8,
+                        nullptr,
+                        q_row.data(),
+                        bcodes,
+                        nb,
+                        k,
+                        heap_dis,
+                        heap_ids,
+                        true)) {
+                const uint8_t* bcode = bcodes;
+                for (size_t j = 0; j < nb; j++) {
+                    float dis = 0;
+                    for (size_t m = 0; m < M; m++) {
+                        dis += q_row[m][bcode[m]];
+                    }
+                    if (dis < heap_dis[0]) {
+                        maxheap_replace_top(k, heap_dis, heap_ids, dis, j);
+                    }
+                    bcode += code_size;
                 }
-                if (dis < heap_dis[0]) {
-                    maxheap_replace_top(k, heap_dis, heap_ids, dis, j);
-                }
-                bcode += code_size;
             }
 
             if (init_finalize_heap)
@@ -922,13 +946,13 @@ void ProductQuantizer::sync_transposed_centroids() {
 
     for (size_t mi = 0; mi < M; mi++) {
         for (size_t ki = 0; ki < ksub; ki++) {
-            float sqlen = 0;
+            float sqlen = fvec_norm_L2sqr_dispatch(
+                    centroids.data() + (mi * ksub + ki) * dsub, dsub);
 
             for (size_t di = 0; di < dsub; di++) {
                 const float q = centroids[(mi * ksub + ki) * dsub + di];
 
                 transposed_centroids[(di * M + mi) * ksub + ki] = q;
-                sqlen += q * q;
             }
 
             centroids_sq_lengths[mi * ksub + ki] = sqlen;

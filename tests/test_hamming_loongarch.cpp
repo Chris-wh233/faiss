@@ -57,6 +57,20 @@ void check_hamming(SIMDLevel level) {
         flat.search(na, x, k, distances.data(), ids.data());
         EXPECT_EQ(distances, reference);
         EXPECT_EQ(ids, refids);
+        for (auto mode :
+             {ApproxTopK_mode_t::APPROX_TOPK_BUCKETS_B8_D3,
+              ApproxTopK_mode_t::APPROX_TOPK_BUCKETS_B8_D2,
+              ApproxTopK_mode_t::APPROX_TOPK_BUCKETS_B16_D2,
+              ApproxTopK_mode_t::APPROX_TOPK_BUCKETS_B32_D2}) {
+            int_maxheap_array_t heap{na, k, ids.data(), distances.data()},
+                    refheap{na, k, refids.data(), reference.data()};
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            hammings_knn_hc(&refheap, x, y, nb, size, 1, mode);
+            SIMDConfig::set_level(level);
+            hammings_knn_hc(&heap, x, y, nb, size, 1, mode);
+            EXPECT_EQ(distances, reference);
+            EXPECT_EQ(ids, refids);
+        }
         if (size % 8 == 0) {
             int_maxheap_array_t heap{na, k, ids.data(), distances.data()};
             int_maxheap_array_t refheap{na, k, refids.data(), reference.data()};
