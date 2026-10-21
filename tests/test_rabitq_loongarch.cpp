@@ -16,6 +16,63 @@ void check_bits() {
     if (!SIMDConfig::is_simd_level_available(SL))
         GTEST_SKIP();
     std::mt19937 rng(12);
+    for (size_t n : {0, 1, 3, 4, 7, 8, 9, 15, 16, 17, 65, 1025, 131073}) {
+        std::vector<float> x(n + 1);
+        for (size_t i = 0; i < n; ++i)
+            x[i + 1] =
+                    n > 1025 ? 255.0f : float(int(rng() % 2049) - 1024) * 0.25f;
+        float rmin = 123, rmax = 456, amin = rmin, amax = rmax;
+        minmax_values<SIMDLevel::NONE>(x.data() + 1, n, rmin, rmax);
+        minmax_values<SL>(x.data() + 1, n, amin, amax);
+        EXPECT_EQ(rmin, amin);
+        EXPECT_EQ(rmax, amax);
+        for (size_t qb = 1; qb <= 8; ++qb)
+            for (bool centered : {false, true}) {
+                std::vector<uint8_t> ref(n + 2, 123), actual(n + 2, 123);
+                size_t rs = 17, as = 17;
+                int64_t r2 = 19, a2 = 19;
+                quantize_query_values<SIMDLevel::NONE>(
+                        x.data() + 1,
+                        n,
+                        0,
+                        1,
+                        (1u << qb) - 1,
+                        centered,
+                        ref.data() + 1,
+                        rs,
+                        r2);
+                quantize_query_values<SL>(
+                        x.data() + 1,
+                        n,
+                        0,
+                        1,
+                        (1u << qb) - 1,
+                        centered,
+                        actual.data() + 1,
+                        as,
+                        a2);
+                EXPECT_EQ(ref, actual);
+                EXPECT_EQ(rs, as);
+                EXPECT_EQ(r2, a2);
+            }
+    }
+    for (int trial = 0; trial < 300; ++trial) {
+        float tab[16];
+        for (int j = 0; j < 16; ++j) {
+            float v = float(rng() % 257) - 0.5f;
+            tab[j] = trial % 2 ? std::nextafter(v, 0.0f) : v;
+        }
+        uint8_t ref[16], actual[16];
+        lut_quantize_16_to_uint8<SIMDLevel::NONE>(tab, 0, 1, ref);
+        lut_quantize_16_to_uint8<SL>(tab, 0, 1, actual);
+        for (int j = 0; j < 16; ++j)
+            EXPECT_EQ(ref[j], actual[j]);
+        float mn, mx, a, b;
+        lut_minmax_16<SIMDLevel::NONE>(tab, mn, mx);
+        lut_minmax_16<SL>(tab, a, b);
+        EXPECT_EQ(a, mn);
+        EXPECT_EQ(b, mx);
+    }
     for (size_t d : {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 129, 1025}) {
         for (size_t bits = 1; bits <= 7; ++bits) {
             std::vector<uint8_t> signs((d + 7) / 8), extra((d * bits + 7) / 8);

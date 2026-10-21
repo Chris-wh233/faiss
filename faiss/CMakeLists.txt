@@ -466,6 +466,7 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-loongarch.h
   utils/simd_impl/loongarch_bits.h
   utils/simd_impl/rabitq_loongarch-inl.h
+  utils/simd_impl/rabitq_quantize_loongarch-inl.h
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h

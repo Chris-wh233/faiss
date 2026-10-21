@@ -9,4 +9,5 @@
 #define THE_SIMD_LEVEL SIMDLevel::LOONGARCH_LSX
 #define FAISS_RABITQ_LSX
 #include <faiss/utils/simd_impl/rabitq_loongarch-inl.h>
+#include <faiss/utils/simd_impl/rabitq_quantize_loongarch-inl.h>
 #endif
