@@ -131,21 +131,39 @@ struct LoongArchSQOps<SIMDLevel::LOONGARCH_LSX> {
                         __lsx_vadd_w(value.data[i], __lsx_vreplgr2vr_w(0x8000)),
                         16);
             } else {
+                // Match fp16-inl.h, including its rounding at half-way
+                // values and subnormals. Hardware FCVT uses ties-to-even.
                 const auto abs = __lsx_vand_v(
                         value.data[i], __lsx_vreplgr2vr_w(0x7fffffff));
-                const auto nan =
-                        __lsx_vslt_wu(__lsx_vreplgr2vr_w(0x7f800000), abs);
-                const auto canonical = __lsx_vor_v(
+                const auto inf = __lsx_vreplgr2vr_w(0x7f800000);
+                const auto nan = __lsx_vslt_wu(inf, abs);
+                const auto special = __lsx_vbitsel_v(
+                        __lsx_vreplgr2vr_w(0x7c00),
+                        __lsx_vreplgr2vr_w(0x7e00),
+                        nan);
+                auto scaled = __lsx_vfmul_s(
+                        (__m128)__lsx_vand_v(
+                                abs, __lsx_vreplgr2vr_w(0xfffff000u)),
+                        (__m128)__lsx_vreplgr2vr_w(15u << 23));
+                scaled = __lsx_vfmin_s(
+                        scaled,
+                        (__m128)__lsx_vreplgr2vr_w((31u << 23) - 0x1000u));
+                const auto rounded = __lsx_vsrli_w(
+                        __lsx_vadd_w(
+                                (__m128i)scaled, __lsx_vreplgr2vr_w(0x1000)),
+                        13);
+                const auto sign = __lsx_vsrli_w(
                         __lsx_vand_v(
                                 value.data[i], __lsx_vreplgr2vr_w(0x80000000u)),
-                        __lsx_vreplgr2vr_w(0x7fc00000));
-                value.data[i] = __lsx_vbitsel_v(value.data[i], canonical, nan);
+                        16);
+                value.data[i] = __lsx_vor_v(
+                        sign,
+                        __lsx_vbitsel_v(
+                                special, rounded, __lsx_vslt_wu(abs, inf)));
             }
         }
 
-        const auto packed = bf16
-                ? __lsx_vpickev_h(value.data[1], value.data[0])
-                : __lsx_vfcvt_h_s((__m128)value.data[1], (__m128)value.data[0]);
+        const auto packed = __lsx_vpickev_h(value.data[1], value.data[0]);
         __lsx_vst(packed, code, 0);
     }
 };
@@ -266,24 +284,40 @@ struct LoongArchSQOps<SIMDLevel::LOONGARCH_LASX> {
                                 value.data[i], __lasx_xvreplgr2vr_w(0x8000)),
                         16);
             } else {
+                // Match fp16-inl.h, including its rounding at half-way
+                // values and subnormals. Hardware FCVT uses ties-to-even.
                 const auto abs = __lasx_xvand_v(
                         value.data[i], __lasx_xvreplgr2vr_w(0x7fffffff));
-                const auto nan =
-                        __lasx_xvslt_wu(__lasx_xvreplgr2vr_w(0x7f800000), abs);
-                const auto canonical = __lasx_xvor_v(
+                const auto inf = __lasx_xvreplgr2vr_w(0x7f800000);
+                const auto nan = __lasx_xvslt_wu(inf, abs);
+                const auto special = __lasx_xvbitsel_v(
+                        __lasx_xvreplgr2vr_w(0x7c00),
+                        __lasx_xvreplgr2vr_w(0x7e00),
+                        nan);
+                auto scaled = __lasx_xvfmul_s(
+                        (__m256)__lasx_xvand_v(
+                                abs, __lasx_xvreplgr2vr_w(0xfffff000u)),
+                        (__m256)__lasx_xvreplgr2vr_w(15u << 23));
+                scaled = __lasx_xvfmin_s(
+                        scaled,
+                        (__m256)__lasx_xvreplgr2vr_w((31u << 23) - 0x1000u));
+                const auto rounded = __lasx_xvsrli_w(
+                        __lasx_xvadd_w(
+                                (__m256i)scaled, __lasx_xvreplgr2vr_w(0x1000)),
+                        13);
+                const auto sign = __lasx_xvsrli_w(
                         __lasx_xvand_v(
                                 value.data[i],
                                 __lasx_xvreplgr2vr_w(0x80000000u)),
-                        __lasx_xvreplgr2vr_w(0x7fc00000));
-                value.data[i] =
-                        __lasx_xvbitsel_v(value.data[i], canonical, nan);
+                        16);
+                value.data[i] = __lasx_xvor_v(
+                        sign,
+                        __lasx_xvbitsel_v(
+                                special, rounded, __lasx_xvslt_wu(abs, inf)));
             }
         }
 
-        const auto packed = bf16
-                ? __lasx_xvpickev_h(value.data[0], value.data[0])
-                : __lasx_xvfcvt_h_s(
-                          (__m256)value.data[0], (__m256)value.data[0]);
+        const auto packed = __lasx_xvpickev_h(value.data[0], value.data[0]);
         __lasx_xvstelm_d(packed, code, 0, 0);
         __lasx_xvstelm_d(packed, code, 8, 2);
     }

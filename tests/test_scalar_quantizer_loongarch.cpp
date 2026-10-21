@@ -15,6 +15,7 @@
 #include <faiss/impl/scalar_quantizer/distance_computers.h>
 #include <faiss/impl/scalar_quantizer/quantizers.h>
 #include <faiss/utils/simd_levels.h>
+#include <faiss/utils/fp16.h>
 #include <gtest/gtest.h>
 #include <bit>
 #include <memory>
@@ -619,5 +620,43 @@ TEST(TestLoongArchScalarQuantizer, PreprocessingLSX) {
 #ifdef COMPILE_SIMD_LOONGARCH_LASX
 TEST(TestLoongArchScalarQuantizer, PreprocessingLASX) {
     check_preprocessing<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+namespace {
+template <SIMDLevel SL>
+void check_fp16_rounding() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    ScalarQuantizer sq(8, ScalarQuantizer::QT_fp16);
+    std::unique_ptr<ScalarQuantizer::SQuantizer> codec(
+            scalar_quantizer::sq_select_quantizer<SL>(
+                    sq.qtype, sq.d, sq.trained));
+    // Every finite positive half interval, mirrored for negative values.
+    // Include the neighbors of each midpoint, subnormals, and overflow.
+    for (uint32_t h = 0; h < 0x7c00; ++h) {
+        const float lo = decode_fp16(h);
+        const float hi = h == 0x7bff ? 65536.0f : decode_fp16(h + 1);
+        const float mid = (lo + hi) * 0.5f;
+        const float before = std::nextafter(mid, 0.0f);
+        const float after =
+                std::nextafter(mid, std::numeric_limits<float>::infinity());
+        const float values[8] = {
+                lo, before, mid, after, -lo, -before, -mid, -after};
+        uint16_t actual[8];
+        codec->encode_vector(values, reinterpret_cast<uint8_t*>(actual));
+        for (int j = 0; j < 8; ++j)
+            ASSERT_EQ(actual[j], encode_fp16(values[j])) << h << " " << j;
+    }
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchScalarQuantizer, Fp16RoundingLSX) {
+    check_fp16_rounding<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchScalarQuantizer, Fp16RoundingLASX) {
+    check_fp16_rounding<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif
