@@ -93,7 +93,9 @@ void beam_search_encode_step(
     InterruptCallback::check();
 
     // Resolve SIMD level once, not per iteration of the n-parallel loop.
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 100)
         for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
             const int32_t* codes_i = codes + i * m * beam_size;
@@ -366,7 +368,9 @@ void beam_search_encode_step_tab(
     FAISS_THROW_IF_NOT(ldc >= K);
 
     // Resolve SIMD level once, not per iteration of the n-parallel loop.
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 100) schedule(dynamic)
         for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
             std::vector<float> cent_distances(beam_size * K);

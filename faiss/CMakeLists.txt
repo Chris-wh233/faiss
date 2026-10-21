@@ -84,6 +84,9 @@ set(FAISS_SIMD_LSX_SRC
   impl/scalar_quantizer/sq-lsx.cpp
   impl/pq_code_distance/lsx.cpp
   impl/fast_scan/impl-lsx.cpp
+  impl/approx_topk/lsx.cpp
+  utils/simd_impl/partitioning_lsx.cpp
+  utils/distances_fused/simdlib_based_lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   utils/simd_impl/distances_lasx.cpp
@@ -93,6 +96,9 @@ set(FAISS_SIMD_LASX_SRC
   impl/scalar_quantizer/sq-lasx.cpp
   impl/pq_code_distance/lasx.cpp
   impl/fast_scan/impl-lasx.cpp
+  impl/approx_topk/lasx.cpp
+  utils/simd_impl/partitioning_lasx.cpp
+  utils/distances_fused/simdlib_based_lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.

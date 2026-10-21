@@ -122,6 +122,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
       test_scalar_quantizer_loongarch.cpp
       test_pq_loongarch.cpp
       test_fastscan_loongarch.cpp
+      test_selection_loongarch.cpp
     )
   endif()
 endif()

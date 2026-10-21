@@ -237,15 +237,23 @@ typename C::T partition_fuzzy(
     constexpr bool is_uint16 = std::is_same<typename C::T, uint16_t>::value;
     if constexpr (is_uint16) {
         if (is_aligned_pointer(vals)) {
-            return with_simd_level_256bit([&]<SIMDLevel SL>() -> typename C::T {
-                if constexpr (SL == SIMDLevel::NONE) {
-                    return partitioning::partition_fuzzy_median3<C>(
-                            vals, ids, n, q_min, q_max, q_out);
-                } else {
-                    return partition_fuzzy_simd<SL, C>(
-                            (uint16_t*)vals, ids, n, q_min, q_max, q_out);
-                }
-            });
+            return with_selected_simd_levels<
+                    AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+                    AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+                    [&]<SIMDLevel SL>() -> typename C::T {
+                        if constexpr (SL == SIMDLevel::NONE) {
+                            return partitioning::partition_fuzzy_median3<C>(
+                                    vals, ids, n, q_min, q_max, q_out);
+                        } else {
+                            return partition_fuzzy_simd<SL, C>(
+                                    (uint16_t*)vals,
+                                    ids,
+                                    n,
+                                    q_min,
+                                    q_max,
+                                    q_out);
+                        }
+                    });
         }
     }
     return partitioning::partition_fuzzy_median3<C>(
@@ -369,13 +377,15 @@ void simd_histogram_8(
         uint16_t min,
         int shift,
         int* hist) {
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
-        if constexpr (SL == SIMDLevel::NONE) {
-            simd_histogram_8_scalar(data, n, min, shift, hist);
-        } else {
-            faiss::simd_histogram_8<SL>(data, n, min, shift, hist);
-        }
-    });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                if constexpr (SL == SIMDLevel::NONE) {
+                    simd_histogram_8_scalar(data, n, min, shift, hist);
+                } else {
+                    faiss::simd_histogram_8<SL>(data, n, min, shift, hist);
+                }
+            });
 }
 
 void simd_histogram_16(
@@ -388,13 +398,15 @@ void simd_histogram_16(
 #if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 12
     simd_histogram_16_scalar(data, n, min, shift, hist);
 #else
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
-        if constexpr (SL == SIMDLevel::NONE) {
-            simd_histogram_16_scalar(data, n, min, shift, hist);
-        } else {
-            faiss::simd_histogram_16<SL>(data, n, min, shift, hist);
-        }
-    });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                if constexpr (SL == SIMDLevel::NONE) {
+                    simd_histogram_16_scalar(data, n, min, shift, hist);
+                } else {
+                    faiss::simd_histogram_16<SL>(data, n, min, shift, hist);
+                }
+            });
 #endif
 }
 
