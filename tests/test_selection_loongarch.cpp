@@ -10,6 +10,8 @@
 #include <faiss/utils/partitioning.h>
 #include <faiss/utils/distances_fused/distances_fused.h>
 #include <gtest/gtest.h>
+#include <faiss/impl/hnsw/MinimaxHeap.h>
+#include <faiss/utils/simd_impl/super_kmeans_kernels.h>
 #include <algorithm>
 #include <numeric>
 #include <random>
@@ -129,5 +131,61 @@ TEST(TestLoongArchSelection, LSX) {
 #ifdef COMPILE_SIMD_LOONGARCH_LASX
 TEST(TestLoongArchSelection, LASX) {
     check_selection(SIMDLevel::LOONGARCH_LASX);
+}
+#endif
+
+namespace {
+template <SIMDLevel SL, class HC>
+void check_graph_heap() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        return;
+    for (int n : {1, 3, 4, 7, 8, 9, 15, 16, 17, 65, 128})
+        for (int trial = 0; trial < 10; ++trial) {
+            faiss::MinimaxHeapT<HC> a(n);
+            for (int j = 0; j < n; ++j)
+                a.push(j,
+                       trial % 3 ? float((j * 17) % 13)
+                                 : std::numeric_limits<float>::infinity());
+            auto b = a;
+            for (int j = 0; j < n; ++j) {
+                float x, y;
+                int expected = faiss::pop_min_tpl<HC, SIMDLevel::NONE>(&a, &x);
+                int actual = faiss::pop_min_tpl<HC, SL>(&b, &y);
+                EXPECT_EQ(actual, expected);
+                EXPECT_EQ(x, y);
+                EXPECT_EQ(a.nvalid, b.nvalid);
+            }
+            EXPECT_EQ((faiss::pop_min_tpl<HC, SL>(&b, nullptr)), -1);
+        }
+}
+template <SIMDLevel SL>
+void check_graph() {
+    check_graph_heap<SL, faiss::CMax<float, int32_t>>();
+    check_graph_heap<SL, faiss::CMin<float, int32_t>>();
+    if (!SIMDConfig::is_simd_level_available(SL))
+        return;
+    std::vector<float> x(257), y(257);
+    for (int j = 0; j < 257; ++j) {
+        x[j] = float(j % 11) * 0.3f;
+        y[j] = float(j % 7) * 0.7f;
+    }
+    for (int n = 1; n <= 256; ++n) {
+        float expected = faiss::detail::block_l2<SIMDLevel::NONE>(
+                x.data() + 1, y.data() + 1, n);
+        EXPECT_NEAR(
+                expected,
+                faiss::detail::block_l2<SL>(x.data() + 1, y.data() + 1, n),
+                expected * 1e-5f);
+    }
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchSelection, GraphLSX) {
+    check_graph<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchSelection, GraphLASX) {
+    check_graph<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

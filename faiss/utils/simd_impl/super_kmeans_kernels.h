@@ -44,5 +44,16 @@ template <>
 float block_l2<SIMDLevel::ARM_SVE>(const float* x, const float* y, int n);
 #endif
 
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+template <>
+float block_l2<SIMDLevel::LOONGARCH_LSX>(const float* x, const float* y, int n);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+template <>
+float block_l2<SIMDLevel::LOONGARCH_LASX>(
+        const float* x,
+        const float* y,
+        int n);
+#endif
 } // namespace detail
 } // namespace faiss
