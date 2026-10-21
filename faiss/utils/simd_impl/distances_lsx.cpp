@@ -10,10 +10,32 @@
 #include <faiss/impl/simdlib/simdlib_lsx.h>
 #include <lsxintrin.h>
 #include <bit>
+#include <cmath>
 namespace faiss {
 namespace {
 // Native register width for distance kernels (4 floats on LSX, 8 on LASX).
 struct FloatVec {
+    struct Mask {
+        __m128i data;
+        Mask operator&(Mask other) const {
+            return {__lsx_vand_v(data, other.data)};
+        }
+        Mask operator|(Mask other) const {
+            return {__lsx_vor_v(data, other.data)};
+        }
+        Mask operator~() const {
+            return {__lsx_vnor_v(data, data)};
+        }
+        uint32_t bits() const {
+            return detail::simdlib_lsx::byte_mask(data);
+        }
+        size_t count() const {
+            return std::popcount(bits()) / 4;
+        }
+        bool any() const {
+            return bits() != 0;
+        }
+    };
     static constexpr size_t width = 4;
     __m128 data;
     explicit FloatVec(__m128 value) : data(value) {}
@@ -53,6 +75,41 @@ struct FloatVec {
         const auto hi = __lsx_vfdiv_d(
                 __lsx_vfcvth_d_s(delta),
                 __lsx_vfadd_d(__lsx_vfcvth_d_s(a), __lsx_vfcvth_d_s(b)));
+        return FloatVec(__lsx_vfcvt_s_d(hi, lo));
+    }
+    Mask equal(FloatVec other) const {
+        return {__lsx_vfcmp_ceq_s(data, other.data)};
+    }
+    Mask less(FloatVec other) const {
+        return {__lsx_vfcmp_clt_s(data, other.data)};
+    }
+    Mask less_equal(FloatVec other) const {
+        return {__lsx_vfcmp_cle_s(data, other.data)};
+    }
+    FloatVec masked(Mask mask) const {
+        return FloatVec((__m128)__lsx_vand_v((__m128i)data, mask.data));
+    }
+    static FloatVec select(Mask mask, FloatVec yes, FloatVec no) {
+        return FloatVec((__m128)__lsx_vbitsel_v(
+                (__m128i)no.data, (__m128i)yes.data, mask.data));
+    }
+    FloatVec negative_log_product(FloatVec args) const {
+        // Preserve the scalar metric's double log and multiplication. libm
+        // supplies log per lane; conversion and multiplication remain SIMD.
+        float values[width];
+        args.store(values);
+        double logs_lo[width / 2], logs_hi[width / 2];
+        for (size_t j = 0; j < width / 2; ++j) {
+            const size_t lane = (j / 2) * 4 + j % 2;
+            logs_lo[j] = std::log(double(values[lane]));
+            logs_hi[j] = std::log(double(values[lane + 2]));
+        }
+        const auto negative = (__m128)__lsx_vxor_v(
+                (__m128i)data, __lsx_vreplgr2vr_w(0x80000000u));
+        const auto lo = __lsx_vfmul_d(
+                __lsx_vfcvtl_d_s(negative), (__m128d)__lsx_vld(logs_lo, 0));
+        const auto hi = __lsx_vfmul_d(
+                __lsx_vfcvth_d_s(negative), (__m128d)__lsx_vld(logs_hi, 0));
         return FloatVec(__lsx_vfcvt_s_d(hi, lo));
     }
     static FloatVec madd(FloatVec a, FloatVec b, FloatVec c) {

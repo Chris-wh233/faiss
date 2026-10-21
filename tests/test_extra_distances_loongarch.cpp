@@ -108,3 +108,74 @@ TEST(TestLoongArchExtraDistances, ArithmeticLASX) {
     check_arithmetic_metrics<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif
+
+namespace {
+template <SIMDLevel SL>
+void check_masked_and_transcendental_metrics() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    check_extra_metric<SL, METRIC_NaNEuclidean>();
+    check_extra_metric<SL, METRIC_GOWER>();
+    check_extra_metric<SL, METRIC_Lp>();
+    check_extra_metric<SL, METRIC_JensenShannon>();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    for (size_t d : {1, 4, 7, 8, 9, 17, 65, 65539}) {
+        std::vector<float> x(d), y(d);
+        for (size_t j = 0; j < d; ++j) {
+            x[j] = j % 3 ? 0.25f : -2.0f;
+            y[j] = j % 3 ? 0.75f : -3.0f;
+            if (j % 7 == 0) {
+                x[j] = nan;
+                y[j] = 2.0f;
+            }
+        }
+        VectorDistance<METRIC_GOWER, SIMDLevel::NONE> gr(d, 0);
+        VectorDistance<METRIC_GOWER, SL> gv(d, 0);
+        VectorDistance<METRIC_NaNEuclidean, SIMDLevel::NONE> nr(d, 0);
+        VectorDistance<METRIC_NaNEuclidean, SL> nv(d, 0);
+        expect_distance(gr(x.data(), y.data()), gv(x.data(), y.data()));
+        expect_distance(nr(x.data(), y.data()), nv(x.data(), y.data()));
+        // A type mismatch or out-of-range numeric value must be rejected.
+        // Missing dimensions, even with invalid partners, must be skipped.
+        for (size_t j : {size_t(0), d / 2, d - 1}) {
+            x[j] = -1;
+            y[j] = 0.5f;
+            EXPECT_TRUE(std::isnan(gv(x.data(), y.data())));
+            x[j] = 2;
+            y[j] = 0.5f;
+            EXPECT_TRUE(std::isnan(gv(x.data(), y.data())));
+            x[j] = nan;
+            expect_distance(gr(x.data(), y.data()), gv(x.data(), y.data()));
+        }
+    }
+    for (float power : {-2.0f, 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, nan, inf}) {
+        for (size_t d : {0, 1, 4, 7, 8, 9, 17, 65}) {
+            VectorDistance<METRIC_Lp, SIMDLevel::NONE> ref(d, power);
+            VectorDistance<METRIC_Lp, SL> simd(d, power);
+            std::vector<float> x(d + 1), y(d + 1, 0);
+            for (size_t j = 1; j <= d; ++j)
+                x[j] = float(j % 7) * 0.5f;
+            expect_distance(
+                    ref(x.data() + 1, y.data() + 1),
+                    simd(x.data() + 1, y.data() + 1));
+            if (d) {
+                x[d] = nan;
+                expect_distance(
+                        ref(x.data() + 1, y.data() + 1),
+                        simd(x.data() + 1, y.data() + 1));
+            }
+        }
+    }
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchExtraDistances, MaskedAndTranscendentalLSX) {
+    check_masked_and_transcendental_metrics<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchExtraDistances, MaskedAndTranscendentalLASX) {
+    check_masked_and_transcendental_metrics<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
