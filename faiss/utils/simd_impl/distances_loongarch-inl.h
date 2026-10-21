@@ -17,6 +17,16 @@
 
 namespace faiss {
 template <>
+void fvec_affine<THE_SIMD_LEVEL>(size_t d, float* x, float scale, float bias) {
+    FloatVec factor(scale), offset(bias);
+    size_t j = 0;
+    for (; j + FloatVec::width <= d; j += FloatVec::width)
+        FloatVec::madd(FloatVec(x + j), factor, offset).store(x + j);
+    for (; j < d; ++j)
+        x[j] = x[j] * scale + bias;
+}
+
+template <>
 void fvec_scale<THE_SIMD_LEVEL>(size_t d, float* x, float scale) {
     FloatVec factor(scale);
     size_t j = 0;

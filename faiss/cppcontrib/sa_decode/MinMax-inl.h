@@ -9,6 +9,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#if defined(__loongarch_sx)
+#include <faiss/cppcontrib/sa_decode/loongarch-inl.h>
+#endif
 
 namespace faiss {
 namespace cppcontrib {
@@ -34,9 +37,14 @@ struct IndexMinMaxDecoder {
                 pqFineCentroids,
                 code + 2 * sizeof(float),
                 outputStore);
+#if defined(__loongarch_sx)
+        detail::loongarch_decode_affine<detail::loongarch_decode_level>(
+                outputStore, SubIndexT::dim, scaler, minv);
+#else
         for (intptr_t i = 0; i < SubIndexT::dim; i++) {
             outputStore[i] = outputStore[i] * scaler + minv;
         }
+#endif
     }
 
     // Process 1 sample.
@@ -52,9 +60,14 @@ struct IndexMinMaxDecoder {
 
         SubIndexT::store(
                 pqFineCentroids, code + 2 * sizeof(float), outputStore);
+#if defined(__loongarch_sx)
+        detail::loongarch_decode_affine<detail::loongarch_decode_level>(
+                outputStore, SubIndexT::dim, scaler, minv);
+#else
         for (intptr_t i = 0; i < SubIndexT::dim; i++) {
             outputStore[i] = outputStore[i] * scaler + minv;
         }
+#endif
     }
 
     // Process 1 sample.

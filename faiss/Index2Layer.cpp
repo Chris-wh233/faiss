@@ -8,6 +8,7 @@
 // -*- c++ -*-
 
 #include <faiss/Index2Layer.h>
+#include <faiss/utils/distances_dispatch.h>
 
 #include <cinttypes>
 #include <cstdint>
@@ -315,9 +316,7 @@ void Index2Layer::sa_decode(idx_t n, const uint8_t* bytes, float* x) const {
             float* xi = x + i * d;
             pq.decode(code + code_size_1, xi);
             q1.quantizer->reconstruct(list_no, residual.data());
-            for (int j = 0; j < d; j++) {
-                xi[j] += residual[j];
-            }
+            fvec_add_dispatch(d, xi, residual.data(), xi);
         }
     }
 }

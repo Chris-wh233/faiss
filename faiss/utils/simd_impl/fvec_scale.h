@@ -22,4 +22,25 @@ void fvec_scale<SIMDLevel::LOONGARCH_LSX>(size_t d, float* x, float scale);
 template <>
 void fvec_scale<SIMDLevel::LOONGARCH_LASX>(size_t d, float* x, float scale);
 #endif
+template <SIMDLevel SL>
+inline void fvec_affine(size_t d, float* x, float scale, float bias) {
+    for (size_t j = 0; j < d; ++j)
+        x[j] = x[j] * scale + bias;
+}
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+template <>
+void fvec_affine<SIMDLevel::LOONGARCH_LSX>(
+        size_t d,
+        float* x,
+        float scale,
+        float bias);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+template <>
+void fvec_affine<SIMDLevel::LOONGARCH_LASX>(
+        size_t d,
+        float* x,
+        float scale,
+        float bias);
+#endif
 } // namespace faiss

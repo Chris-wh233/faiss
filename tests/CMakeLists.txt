@@ -99,19 +99,19 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
-  list(APPEND FAISS_TEST_SRC test_simdlib_loongarch.cpp)
+  list(APPEND FAISS_TEST_SRC test_simdlib_loongarch.cpp test_sa_decode_loongarch.cpp)
   if(FAISS_HAVE_LSX)
-    list(APPEND FAISS_TEST_SRC test_simdlib_lsx.cpp)
-    set_source_files_properties(test_simdlib_lsx.cpp
+    list(APPEND FAISS_TEST_SRC test_simdlib_lsx.cpp test_sa_decode_lsx.cpp)
+    set_source_files_properties(test_simdlib_lsx.cpp test_sa_decode_lsx.cpp
       PROPERTIES COMPILE_OPTIONS "-mlsx;-mno-lasx")
-    set_property(SOURCE test_simdlib_loongarch.cpp APPEND PROPERTY
+    set_property(SOURCE test_simdlib_loongarch.cpp test_sa_decode_loongarch.cpp APPEND PROPERTY
       COMPILE_DEFINITIONS FAISS_TEST_LSX)
   endif()
   if(FAISS_HAVE_LASX)
-    list(APPEND FAISS_TEST_SRC test_simdlib_lasx.cpp)
-    set_source_files_properties(test_simdlib_lasx.cpp
+    list(APPEND FAISS_TEST_SRC test_simdlib_lasx.cpp test_sa_decode_lasx.cpp)
+    set_source_files_properties(test_simdlib_lasx.cpp test_sa_decode_lasx.cpp
       PROPERTIES COMPILE_OPTIONS "-mlasx")
-    set_property(SOURCE test_simdlib_loongarch.cpp APPEND PROPERTY
+    set_property(SOURCE test_simdlib_loongarch.cpp test_sa_decode_loongarch.cpp APPEND PROPERTY
       COMPILE_DEFINITIONS FAISS_TEST_LASX)
   endif()
   if(FAISS_OPT_LEVEL STREQUAL "dd")

@@ -6,6 +6,8 @@
  */
 
 #include <faiss/IndexRowwiseMinMax.h>
+#include <faiss/impl/simd_dispatch.h>
+#include <faiss/utils/simd_impl/fvec_scale.h>
 
 #include <cstdint>
 #include <cstring>
@@ -199,9 +201,11 @@ void sa_decode_impl(
 
             float* const __restrict vec = x + d * i;
 
-            for (idx_t j = 0; j < d; j++) {
-                vec[j] = vec[j] * scaler + minv;
-            }
+            with_selected_simd_levels<
+                    (1 << int(SIMDLevel::NONE)) |
+                    AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
+                fvec_affine<SL>(d, vec, scaler, minv);
+            });
         }
 
         // next chunk
