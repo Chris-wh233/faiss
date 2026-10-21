@@ -34,6 +34,28 @@ struct FloatVec {
     FloatVec operator*(FloatVec other) const {
         return FloatVec(__lasx_xvfmul_s(data, other.data));
     }
+    FloatVec operator/(FloatVec other) const {
+        return FloatVec(__lasx_xvfdiv_s(data, other.data));
+    }
+    FloatVec minimum_number(FloatVec other) const {
+        return FloatVec(__lasx_xvfmin_s(data, other.data));
+    }
+    FloatVec maximum_number(FloatVec other) const {
+        return FloatVec(__lasx_xvfmax_s(data, other.data));
+    }
+    FloatVec canberra_terms(FloatVec other) const {
+        // The scalar metric uses double fabs/add/div for the denominator.
+        // In particular, |x| + |y| must not overflow in float.
+        const auto a = abs().data, b = other.abs().data;
+        const auto delta = (*this - other).abs().data;
+        const auto lo = __lasx_xvfdiv_d(
+                __lasx_xvfcvtl_d_s(delta),
+                __lasx_xvfadd_d(__lasx_xvfcvtl_d_s(a), __lasx_xvfcvtl_d_s(b)));
+        const auto hi = __lasx_xvfdiv_d(
+                __lasx_xvfcvth_d_s(delta),
+                __lasx_xvfadd_d(__lasx_xvfcvth_d_s(a), __lasx_xvfcvth_d_s(b)));
+        return FloatVec(__lasx_xvfcvt_s_d(hi, lo));
+    }
     static FloatVec madd(FloatVec a, FloatVec b, FloatVec c) {
         return FloatVec(__lasx_xvfmadd_s(a.data, b.data, c.data));
     }
@@ -91,6 +113,7 @@ struct FloatVec {
 
 #define THE_SIMD_LEVEL SIMDLevel::LOONGARCH_LASX
 #include <faiss/utils/simd_impl/distances_loongarch-inl.h>
+#include <faiss/utils/simd_impl/extra_distances_loongarch-inl.h>
 
 namespace faiss::quantizer_preprocessing {
 template <>
