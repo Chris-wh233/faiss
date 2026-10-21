@@ -340,6 +340,20 @@ set(FAISS_HEADERS
   index_factory.h
   factory_tools.h
   index_io.h
+  cppcontrib/SaDecodeKernels.h
+  cppcontrib/detail/CoarseBitType.h
+  cppcontrib/detail/UintReader.h
+  cppcontrib/sa_decode/Level2-avx2-inl.h
+  cppcontrib/sa_decode/Level2-inl.h
+  cppcontrib/sa_decode/Level2-loongarch-inl.h
+  cppcontrib/sa_decode/Level2-neon-inl.h
+  cppcontrib/sa_decode/MinMax-inl.h
+  cppcontrib/sa_decode/MinMaxFP16-inl.h
+  cppcontrib/sa_decode/PQ-avx2-inl.h
+  cppcontrib/sa_decode/PQ-inl.h
+  cppcontrib/sa_decode/PQ-loongarch-inl.h
+  cppcontrib/sa_decode/PQ-neon-inl.h
+  cppcontrib/sa_decode/loongarch-inl.h
   impl/AdSampling.h
   impl/AdditiveQuantizer.h
   impl/AuxIndexStructures.h
