@@ -81,12 +81,19 @@ class TestExtraDistances(unittest.TestCase):
             scipy.spatial.distance.braycurtis, faiss.METRIC_BrayCurtis
         )
 
-    def xx_test_jensenshannon(self):
-        # this distance does not seem to be implemented in scipy
-        # vectors should probably be L1 normalized
-        self.run_simple_dis_test(
-            scipy.spatial.distance.jensenshannon, faiss.METRIC_JensenShannon
+    def test_jensenshannon(self):
+        xq, yb = self.make_example()
+        xq /= xq.sum(axis=1, keepdims=True)
+        yb /= yb.sum(axis=1, keepdims=True)
+        # scipy returns the square root of the divergence computed by Faiss.
+        reference = np.array(
+            [
+                [scipy.spatial.distance.jensenshannon(x, y) ** 2 for y in yb]
+                for x in xq
+            ]
         )
+        actual = faiss.pairwise_distances(xq, yb, faiss.METRIC_JensenShannon)
+        np.testing.assert_allclose(actual, reference, rtol=1e-5, atol=1e-6)
 
     def test_jaccard(self):
         xq, yb = self.make_example()

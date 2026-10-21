@@ -7,6 +7,15 @@
 
 #include <gtest/gtest.h>
 #include <faiss/utils/extra_distances.h>
+#include <faiss/utils/distances_dispatch.h>
+#include <faiss/IndexFlat.h>
+#include <faiss/IndexIVFFlat.h>
+#include <faiss/impl/AuxIndexStructures.h>
+#include <faiss/impl/DistanceComputer.h>
+#include <faiss/impl/IDSelector.h>
+#include <algorithm>
+#include <memory>
+#include <type_traits>
 #include <cmath>
 #include <limits>
 #include <random>
@@ -177,5 +186,158 @@ TEST(TestLoongArchExtraDistances, MaskedAndTranscendentalLSX) {
 #ifdef COMPILE_SIMD_LOONGARCH_LASX
 TEST(TestLoongArchExtraDistances, MaskedAndTranscendentalLASX) {
     check_masked_and_transcendental_metrics<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+namespace {
+struct ExtraLevelGuard {
+    SIMDLevel saved = SIMDConfig::get_level();
+    ~ExtraLevelGuard() {
+        SIMDConfig::set_level(saved);
+    }
+};
+template <SIMDLevel SL, MetricType metric>
+void check_extra_dispatch() {
+    constexpr int d = 17, nb = 43, nq = 11, k = 7;
+    constexpr float arg = 1.5f;
+    std::mt19937 rng(156);
+    std::vector<float> xb(nb * d), xq(nq * d);
+    for (auto* values : {&xb, &xq})
+        for (size_t j = 0; j < values->size(); ++j) {
+            (*values)[j] = 0.01f + float(rng() % 9001) / 10000;
+            if constexpr (metric == METRIC_GOWER) {
+                if (j % d % 3 == 0)
+                    (*values)[j] = -1.0f - float(rng() % 3);
+            }
+        }
+    SIMDConfig::set_level(SL);
+    with_VectorDistance(d, metric, arg, [&](auto vd) {
+        EXPECT_TRUE((std::is_same_v<decltype(vd), VectorDistance<metric, SL>>));
+        VectorDistance<metric, SIMDLevel::NONE> ref(d, arg);
+        expect_distance(ref(xb.data(), xq.data()), vd(xb.data(), xq.data()));
+    });
+    // Strided pairwise input and output exercise the public wrapper, including
+    // its OpenMP loop. Padding must remain untouched.
+    std::vector<float> padded_x(nq * (d + 3), 123), padded_y(nb * (d + 2), 123);
+    for (int i = 0; i < nq; ++i)
+        std::copy_n(xq.data() + i * d, d, padded_x.data() + i * (d + 3));
+    for (int i = 0; i < nb; ++i)
+        std::copy_n(xb.data() + i * d, d, padded_y.data() + i * (d + 2));
+    std::vector<float> pairwise(nq * (nb + 5), 123);
+    pairwise_extra_distances(
+            d,
+            nq,
+            padded_x.data(),
+            nb,
+            padded_y.data(),
+            metric,
+            arg,
+            pairwise.data(),
+            d + 3,
+            d + 2,
+            nb + 5);
+    VectorDistance<metric, SIMDLevel::NONE> ref(d, arg);
+    for (int i = 0; i < nq; ++i) {
+        for (int j = 0; j < nb; ++j)
+            expect_distance(
+                    ref(xq.data() + i * d, xb.data() + j * d),
+                    pairwise[i * (nb + 5) + j]);
+        for (int j = nb; j < nb + 5; ++j)
+            EXPECT_EQ(pairwise[i * (nb + 5) + j], 123);
+    }
+    IndexFlat flat(d, metric);
+    flat.metric_arg = arg;
+    flat.add(nb, xb.data());
+    // Pre-populate one coarse centroid to isolate scanner dispatch from
+    // clustering and make every vector participate in the IVF comparison.
+    IndexFlatL2 coarse(d);
+    coarse.add(1, xb.data());
+    IndexIVFFlat ivf(&coarse, d, 1, metric);
+    ivf.metric_arg = arg;
+    ASSERT_TRUE(ivf.is_trained);
+    ivf.add(nb, xb.data());
+    std::unique_ptr<FlatCodesDistanceComputer> dc(
+            flat.get_FlatCodesDistanceComputer());
+    dc->set_query(xq.data());
+    for (int j = 0; j < nb; ++j) {
+        expect_distance(ref(xq.data(), xb.data() + j * d), (*dc)(j));
+        expect_distance(
+                ref(xb.data(), xb.data() + j * d), dc->symmetric_dis(0, j));
+    }
+    IDSelectorRange selector(2, nb - 3);
+    SearchParametersIVF params;
+    params.nprobe = 1;
+    for (Index* index :
+         {static_cast<Index*>(&flat), static_cast<Index*>(&ivf)}) {
+        for (bool filtered : {false, true}) {
+            params.sel = filtered ? &selector : nullptr;
+            std::vector<float> expected(nq * k), actual(nq * k);
+            std::vector<idx_t> expected_ids(nq * k), actual_ids(nq * k);
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            index->search(
+                    nq,
+                    xq.data(),
+                    k,
+                    expected.data(),
+                    expected_ids.data(),
+                    &params);
+            SIMDConfig::set_level(SL);
+            index->search(
+                    nq,
+                    xq.data(),
+                    k,
+                    actual.data(),
+                    actual_ids.data(),
+                    &params);
+            EXPECT_EQ(expected_ids, actual_ids);
+            for (size_t i = 0; i < actual.size(); ++i)
+                expect_distance(expected[i], actual[i]);
+            // A threshold inside the distance range exercises both accepted
+            // and rejected candidates, for distances and Jaccard similarity.
+            const float radius = (pairwise[0] + pairwise[nb - 1]) * 0.5f;
+            RangeSearchResult r(nq), a(nq);
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            index->range_search(nq, xq.data(), radius, &r, &params);
+            SIMDConfig::set_level(SL);
+            index->range_search(nq, xq.data(), radius, &a, &params);
+            for (int i = 0; i < nq; ++i) {
+                ASSERT_EQ(r.lims[i + 1] - r.lims[i], a.lims[i + 1] - a.lims[i]);
+                std::vector<std::pair<idx_t, float>> rr, aa;
+                for (size_t j = r.lims[i]; j < r.lims[i + 1]; ++j)
+                    rr.emplace_back(r.labels[j], r.distances[j]);
+                for (size_t j = a.lims[i]; j < a.lims[i + 1]; ++j)
+                    aa.emplace_back(a.labels[j], a.distances[j]);
+                std::sort(rr.begin(), rr.end());
+                std::sort(aa.begin(), aa.end());
+                for (size_t j = 0; j < rr.size(); ++j) {
+                    EXPECT_EQ(rr[j].first, aa[j].first);
+                    expect_distance(rr[j].second, aa[j].second);
+                }
+            }
+        }
+    }
+}
+template <SIMDLevel SL>
+void check_extra_integration() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    ExtraLevelGuard guard;
+    check_extra_dispatch<SL, METRIC_Canberra>();
+    check_extra_dispatch<SL, METRIC_BrayCurtis>();
+    check_extra_dispatch<SL, METRIC_Jaccard>();
+    check_extra_dispatch<SL, METRIC_NaNEuclidean>();
+    check_extra_dispatch<SL, METRIC_GOWER>();
+    check_extra_dispatch<SL, METRIC_Lp>();
+    check_extra_dispatch<SL, METRIC_JensenShannon>();
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchExtraDistances, IntegrationLSX) {
+    check_extra_integration<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchExtraDistances, IntegrationLASX) {
+    check_extra_integration<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

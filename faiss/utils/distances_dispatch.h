@@ -265,7 +265,11 @@ auto with_VectorDistance(
         constexpr bool has_simd = mt == METRIC_INNER_PRODUCT ||
                 mt == METRIC_L2 || mt == METRIC_L1 || mt == METRIC_Linf;
         if constexpr (!has_simd) {
-            return call.template operator()<SIMDLevel::NONE>();
+            // Extra metrics have native LoongArch kernels. Preserve the
+            // existing scalar selection on other architectures.
+            return with_selected_simd_levels<
+                    (1 << int(SIMDLevel::NONE)) |
+                    AVAILABLE_SIMD_LEVELS_LOONGARCH>(call);
         } else {
             return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
                     call);

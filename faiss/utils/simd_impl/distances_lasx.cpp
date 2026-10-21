@@ -212,9 +212,6 @@ void eden_code_stats<SIMDLevel::LOONGARCH_LASX>(
     }
 }
 } // namespace faiss::quantizer_preprocessing
-// Only the four metrics with native LoongArch distance kernels are dispatched.
-#define FAISS_IVFFLAT_SCANNER_BASIC_METRICS_ONLY
 #include <faiss/utils/simd_impl/IVFFlatScanner-inl.h>
-#undef FAISS_IVFFLAT_SCANNER_BASIC_METRICS_ONLY
 #undef THE_SIMD_LEVEL
 #endif // COMPILE_SIMD_LOONGARCH_LASX
