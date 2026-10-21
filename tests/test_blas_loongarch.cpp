@@ -6,6 +6,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <omp.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -20,10 +21,12 @@ namespace {
 using namespace faiss;
 struct BlasGuard {
     SIMDLevel level = SIMDConfig::get_level();
+    int threads = omp_get_max_threads();
     int threshold = distance_compute_blas_threshold;
     int query_bs = distance_compute_blas_query_bs;
     int database_bs = distance_compute_blas_database_bs;
     ~BlasGuard() {
+        omp_set_num_threads(threads);
         SIMDConfig::set_level(level);
         distance_compute_blas_threshold = threshold;
         distance_compute_blas_query_bs = query_bs;
@@ -295,6 +298,151 @@ void check_top1_edges() {
     EXPECT_EQ(actual[0], -777);
     EXPECT_EQ(ai[0], -777);
 }
+
+template <SIMDLevel SL>
+void check_bulk() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    BlasGuard guard;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    const float max = std::numeric_limits<float>::max();
+    const float values[] = {0, -0.0f, 1, -1, 2, 3, inf, -inf, nan, max};
+    for (size_t n : {0, 1, 3, 4, 7, 8, 9, 17, 65}) {
+        std::vector<float> ip(10 * n + 2, -777), ref(ip), yn(n);
+        for (size_t i = 0; i < n; ++i)
+            yn[i] = values[i % 10];
+        for (size_t i = 0; i < 10 * n; ++i)
+            ip[i + 1] = values[(i * 7) % 10];
+        for (size_t j = 0; j < 10; ++j)
+            for (size_t i = 0; i < n; ++i)
+                ref[j * n + i + 1] =
+                        std::fma(-2.0f, ip[j * n + i + 1], values[j] + yn[i]);
+        SIMDConfig::set_level(SL);
+        inner_product_to_L2sqr(ip.data() + 1, values, yn.data(), 10, n);
+        for (size_t i = 0; i < ip.size(); ++i)
+            expect_distance(ip[i], ref[i]);
+        // Padded input/output strides, including empty and single-row cases.
+        constexpr size_t d = 9, ldq = 12, ldb = 13;
+        const size_t ldd = n + 3;
+        for (size_t nq : {0, 1, 5}) {
+            std::vector<float> x(nq * ldq), y(n * ldb);
+            for (size_t i = 0; i < x.size(); ++i)
+                x[i] = float(i % 17) / 8;
+            for (size_t i = 0; i < y.size(); ++i)
+                y[i] = float(i % 23) / 8;
+            std::vector<float> actual(nq * ldd, -777), expected(actual);
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            pairwise_L2sqr(
+                    d,
+                    nq,
+                    x.data(),
+                    n,
+                    y.data(),
+                    expected.data(),
+                    ldq,
+                    ldb,
+                    ldd);
+            SIMDConfig::set_level(SL);
+            pairwise_L2sqr(
+                    d, nq, x.data(), n, y.data(), actual.data(), ldq, ldb, ldd);
+            EXPECT_EQ(actual, expected);
+        }
+    }
+}
+
+template <SIMDLevel SL>
+void check_db_parallel() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    BlasGuard guard;
+    omp_set_num_threads(4);
+    distance_compute_blas_database_bs = 127;
+    constexpr size_t d = 9, nx = 3, ny = 20003;
+    std::vector<float> x(nx * d), y(ny * d), norms(ny);
+    for (size_t i = 0; i < x.size(); ++i)
+        x[i] = float(i % 17) / 8;
+    for (size_t i = 0; i < y.size(); ++i)
+        y[i] = float(i % 31) / 8;
+    SIMDConfig::set_level(SIMDLevel::NONE);
+    fvec_norms_L2sqr(norms.data(), y.data(), d, ny);
+    for (size_t k : {1, 3, 101}) {
+        for (bool precomputed : {false, true}) {
+            std::vector<float> actual(nx * k), ref(nx * k);
+            std::vector<idx_t> ai(nx * k), ri(nx * k);
+            const float* yn = precomputed ? norms.data() : nullptr;
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    k,
+                    ref.data(),
+                    ri.data(),
+                    yn);
+            SIMDConfig::set_level(SL);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    k,
+                    actual.data(),
+                    ai.data(),
+                    yn);
+            EXPECT_EQ(actual, ref);
+            EXPECT_EQ(ai, ri);
+        }
+    }
+    // Equal clipped minima in different thread partitions preserve the first
+    // id.
+    std::fill(x.begin(), x.end(), 0);
+    std::fill(y.begin(), y.end(), 0);
+    for (float fill :
+         {std::numeric_limits<float>::quiet_NaN(),
+          std::numeric_limits<float>::infinity(),
+          5.0f}) {
+        std::fill(norms.begin(), norms.end(), fill);
+        for (bool clipped : {false, true}) {
+            if (clipped) {
+                norms[131] = -1;
+                norms[10007] = -2;
+                norms[ny - 1] = -3;
+            }
+            std::vector<float> actual(nx), ref(nx);
+            std::vector<idx_t> ai(nx), ri(nx);
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    1,
+                    ref.data(),
+                    ri.data(),
+                    norms.data());
+            SIMDConfig::set_level(SL);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    1,
+                    actual.data(),
+                    ai.data(),
+                    norms.data());
+            EXPECT_EQ(actual, ref);
+            EXPECT_EQ(ai, ri);
+            if (clipped)
+                EXPECT_EQ(ai[0], 131);
+        }
+    }
+}
 } // namespace
 
 #ifdef COMPILE_SIMD_LOONGARCH_LSX
@@ -328,5 +476,22 @@ TEST(LoongArchBlas, LASXTop1Kernel) {
 }
 TEST(LoongArchBlas, LASXTop1Edges) {
     check_top1_edges<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(LoongArchBlas, LSXBulk) {
+    check_bulk<SIMDLevel::LOONGARCH_LSX>();
+}
+TEST(LoongArchBlas, LSXDatabaseParallel) {
+    check_db_parallel<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(LoongArchBlas, LASXBulk) {
+    check_bulk<SIMDLevel::LOONGARCH_LASX>();
+}
+TEST(LoongArchBlas, LASXDatabaseParallel) {
+    check_db_parallel<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

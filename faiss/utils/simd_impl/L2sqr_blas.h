@@ -18,6 +18,14 @@ namespace faiss {
 template <SIMDLevel SL>
 void fvec_L2sqr_blas(size_t n, float* ip, const float* y_norms, float x_norm);
 
+// Conversion API variant: preserve negative values (no search-time clamp).
+template <SIMDLevel SL>
+void fvec_inner_product_to_L2sqr(
+        size_t n,
+        float* ip,
+        const float* y_norms,
+        float x_norm);
+
 // Correct a row and return the first index strictly below limit, or n if
 // no candidate exists. Apply the clamp before comparing candidates so that
 // distinct negative roundoff values tie at zero.

@@ -649,7 +649,7 @@ int distance_compute_min_k_reservoir = 100;
 // queries, for the case where nx < nthreads and the database is large.
 static constexpr size_t kDbParallelMinVectors = 10000;
 
-template <class C>
+template <class C, SIMDLevel SL = SIMDLevel::NONE>
 static void knn_db_parallel_impl(
         const float* x,
         const float* y,
@@ -660,6 +660,8 @@ static void knn_db_parallel_impl(
         float* vals,
         int64_t* ids,
         const float* y_norms) {
+    constexpr bool native_l2 = C::is_max &&
+            (SL == SIMDLevel::LOONGARCH_LSX || SL == SIMDLevel::LOONGARCH_LASX);
     using T = typename C::T;
     using TI = typename C::TI;
 
@@ -742,15 +744,38 @@ static void knn_db_parallel_impl(
                 for (size_t i = 0; i < nx; i++) {
                     T* heap_dis = my_dis + i * k;
                     TI* heap_ids = my_ids + i * k;
-                    const float* ip_line = ip_block.get() + i * block_ny;
+                    float* ip_line = ip_block.get() + i * block_ny;
                     T thresh = heap_dis[0];
+
+                    if constexpr (native_l2) {
+                        const size_t j0 = j_begin + jj0;
+                        if (k == 1) {
+                            const size_t idx = fvec_L2sqr_blas_cmax<SL>(
+                                    block_ny,
+                                    ip_line,
+                                    y_norms + j0,
+                                    x_norms[i],
+                                    thresh);
+                            if (idx != block_ny) {
+                                heap_replace_top<C>(
+                                        k,
+                                        heap_dis,
+                                        heap_ids,
+                                        ip_line[idx],
+                                        j0 + idx);
+                            }
+                            continue;
+                        }
+                        fvec_L2sqr_blas<SL>(
+                                block_ny, ip_line, y_norms + j0, x_norms[i]);
+                    }
 
                     for (size_t jj = 0; jj < block_ny; jj++) {
                         size_t global_j = j_begin + jj0 + jj;
                         float ip = ip_line[jj];
                         T dis;
 
-                        if constexpr (C::is_max) {
+                        if constexpr (C::is_max && !native_l2) {
                             dis = x_norms[i] + y_norms[global_j] - 2 * ip;
                             if (dis < 0) {
                                 dis = 0;
@@ -899,8 +924,12 @@ void knn_L2sqr(
     }
 
     if (should_use_db_parallel(nx, ny, sel)) {
-        knn_db_parallel_impl<CMax<float, int64_t>>(
-                x, y, d, nx, ny, k, vals, ids, y_norm2);
+        with_selected_simd_levels<
+                (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+                [&]<SIMDLevel SL>() {
+                    knn_db_parallel_impl<CMax<float, int64_t>, SL>(
+                            x, y, d, nx, ny, k, vals, ids, y_norm2);
+                });
     } else {
         Run_search_L2sqr r;
         // @lint-ignore CLANGTIDY facebook-hte-NullableDereference
@@ -1178,15 +1207,27 @@ void pairwise_L2sqr(
 #pragma omp parallel for
         for (int64_t i = 1; i < nq; i++) {
             float q_norm = fvec_norm_L2sqr<SL>(xq + i * ldq, d);
-            for (int64_t j = 0; j < nb; j++) {
-                dis[i * ldd + j] = q_norm + b_norms[j];
+            if constexpr (
+                    SL == SIMDLevel::LOONGARCH_LSX ||
+                    SL == SIMDLevel::LOONGARCH_LASX) {
+                fvec_add<SL>(nb, b_norms, q_norm, dis + i * ldd);
+            } else {
+                for (int64_t j = 0; j < nb; j++) {
+                    dis[i * ldd + j] = q_norm + b_norms[j];
+                }
             }
         }
 
         {
             float q_norm = fvec_norm_L2sqr<SL>(xq, d);
-            for (int64_t j = 0; j < nb; j++) {
-                dis[j] += q_norm;
+            if constexpr (
+                    SL == SIMDLevel::LOONGARCH_LSX ||
+                    SL == SIMDLevel::LOONGARCH_LASX) {
+                fvec_add<SL>(nb, dis, q_norm, dis);
+            } else {
+                for (int64_t j = 0; j < nb; j++) {
+                    dis[j] += q_norm;
+                }
             }
         }
     });
@@ -1217,13 +1258,23 @@ void inner_product_to_L2sqr(
         const float* nr2,
         size_t n1,
         size_t n2) {
+    with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for
-    for (int64_t j = 0; j < static_cast<int64_t>(n1); j++) {
-        float* disj = dis + j * n2;
-        for (size_t i = 0; i < n2; i++) {
-            disj[i] = nr1[j] + nr2[i] - 2 * disj[i];
-        }
-    }
+                for (int64_t j = 0; j < static_cast<int64_t>(n1); j++) {
+                    float* disj = dis + j * n2;
+                    if constexpr (
+                            SL == SIMDLevel::LOONGARCH_LSX ||
+                            SL == SIMDLevel::LOONGARCH_LASX) {
+                        fvec_inner_product_to_L2sqr<SL>(n2, disj, nr2, nr1[j]);
+                    } else {
+                        for (size_t i = 0; i < n2; i++) {
+                            disj[i] = nr1[j] + nr2[i] - 2 * disj[i];
+                        }
+                    }
+                }
+            });
 }
 
 } // namespace faiss
