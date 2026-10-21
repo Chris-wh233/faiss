@@ -496,6 +496,7 @@ set(FAISS_HEADERS
   utils/simd_impl/distances_loongarch-inl.h
   utils/simd_impl/quantizer_preprocessing.h
   utils/simd_impl/extra_distances_loongarch-inl.h
+  utils/simd_impl/L2sqr_blas.h
   utils/simd_impl/fvec_scale.h
   utils/simd_impl/pq_tables_simdlib256.h
   impl/pq_code_distance/pq_code_distance-loongarch.h

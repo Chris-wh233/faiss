@@ -7,6 +7,7 @@
 
 #include <faiss/utils/distances.h>
 #include <faiss/utils/simd_impl/fvec_scale.h>
+#include <faiss/utils/simd_impl/L2sqr_blas.h>
 
 #include <algorithm>
 #include <cassert>
@@ -418,7 +419,7 @@ void exhaustive_inner_product_blas(
 
 // distance correction is an operator that can be applied to transform
 // the distances
-template <class BlockResultHandler>
+template <class BlockResultHandler, SIMDLevel SL = SIMDLevel::NONE>
 void exhaustive_L2sqr_blas_default_impl(
         const float* x,
         const float* y,
@@ -483,21 +484,35 @@ void exhaustive_L2sqr_blas_default_impl(
             for (size_t i = i0; i < i1; i++) {
                 float* ip_line = ip_block.get() + (i - i0) * (j1 - j0);
 
-                for (size_t j = j0; j < j1; j++) {
-                    float ip = *ip_line;
-                    float dis = x_norms[i] + y_norms[j] - 2 * ip;
-
-                    if (!res.is_in_selection(j)) {
-                        dis = HUGE_VALF;
+                if constexpr (
+                        SL == SIMDLevel::LOONGARCH_LSX ||
+                        SL == SIMDLevel::LOONGARCH_LASX) {
+                    fvec_L2sqr_blas<SL>(
+                            j1 - j0, ip_line, y_norms + j0, x_norms[i]);
+                    if (res.sel) {
+                        for (size_t j = j0; j < j1; ++j) {
+                            if (!res.is_in_selection(j)) {
+                                ip_line[j - j0] = HUGE_VALF;
+                            }
+                        }
                     }
-                    // negative values can occur for identical vectors
-                    // due to roundoff errors
-                    if (dis < 0) {
-                        dis = 0;
-                    }
+                } else {
+                    for (size_t j = j0; j < j1; j++) {
+                        float ip = *ip_line;
+                        float dis = x_norms[i] + y_norms[j] - 2 * ip;
 
-                    *ip_line = dis;
-                    ip_line++;
+                        if (!res.is_in_selection(j)) {
+                            dis = HUGE_VALF;
+                        }
+                        // negative values can occur for identical vectors
+                        // due to roundoff errors
+                        if (dis < 0) {
+                            dis = 0;
+                        }
+
+                        *ip_line = dis;
+                        ip_line++;
+                    }
                 }
             }
             res.add_results(j0, j1, ip_block.get());
@@ -516,7 +531,12 @@ void exhaustive_L2sqr_blas(
         size_t ny,
         BlockResultHandler& res,
         const float* y_norms = nullptr) {
-    exhaustive_L2sqr_blas_default_impl(x, y, d, nx, ny, res, y_norms);
+    with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                exhaustive_L2sqr_blas_default_impl<BlockResultHandler, SL>(
+                        x, y, d, nx, ny, res, y_norms);
+            });
 }
 
 } // anonymous namespace
@@ -538,7 +558,9 @@ void exhaustive_L2sqr_blas<Top1BlockResultHandler<CMax<float, int64_t>>>(
         return;
     }
 
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() {
                 if constexpr (
                         SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
@@ -547,8 +569,8 @@ void exhaustive_L2sqr_blas<Top1BlockResultHandler<CMax<float, int64_t>>>(
                             x, y, d, nx, ny, res, y_norms);
                 } else {
                     exhaustive_L2sqr_blas_default_impl<
-                            Top1BlockResultHandler<CMax<float, int64_t>>>(
-                            x, y, d, nx, ny, res, y_norms);
+                            Top1BlockResultHandler<CMax<float, int64_t>>,
+                            SL>(x, y, d, nx, ny, res, y_norms);
                 }
             });
 }

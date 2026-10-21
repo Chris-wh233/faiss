@@ -12,11 +12,31 @@
 #include <limits>
 
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/L2sqr_blas.h>
 #include <faiss/utils/simd_impl/quantizer_preprocessing.h>
 #include <faiss/utils/simd_impl/fvec_scale.h>
 #include <faiss/utils/extra_distances.h>
 
 namespace faiss {
+template <>
+void fvec_L2sqr_blas<THE_SIMD_LEVEL>(
+        size_t n,
+        float* ip,
+        const float* y_norms,
+        float x_norm) {
+    const FloatVec x(x_norm), minus_two(-2.0f), zero(0.0f);
+    size_t j = 0;
+    for (; j + FloatVec::width <= n; j += FloatVec::width) {
+        const FloatVec dis = FloatVec::madd(
+                minus_two, FloatVec(ip + j), x + FloatVec(y_norms + j));
+        FloatVec::select(dis.less(zero), zero, dis).store(ip + j);
+    }
+    for (; j < n; ++j) {
+        const float dis = std::fma(-2.0f, ip[j], x_norm + y_norms[j]);
+        ip[j] = dis < 0 ? 0 : dis;
+    }
+}
+
 template <>
 void fvec_affine<THE_SIMD_LEVEL>(size_t d, float* x, float scale, float bias) {
     FloatVec factor(scale), offset(bias);
