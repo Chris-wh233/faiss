@@ -6,6 +6,8 @@
  */
 
 #include <faiss/IndexFlat.h>
+#include <faiss/IndexRowwiseMinMax.h>
+#include <faiss/utils/simd_impl/quantizer_preprocessing.h>
 #include <faiss/impl/EDENQuantizer.h>
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/impl/IDSelector.h>
@@ -467,5 +469,155 @@ TEST(TestLoongArchScalarQuantizer, AdvancedLSX) {
 #ifdef COMPILE_SIMD_LOONGARCH_LASX
 TEST(TestLoongArchScalarQuantizer, AdvancedLASX) {
     check_advanced_codecs<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+namespace {
+template <SIMDLevel SL>
+void check_preprocessing() {
+    if (!SIMDConfig::is_simd_level_available(SL))
+        GTEST_SKIP();
+    using namespace quantizer_preprocessing;
+    std::mt19937 rng(529);
+    for (size_t d = 0; d <= 65; ++d) {
+        SCOPED_TRACE(d);
+        std::vector<float> x(d + 2, 123), c(d + 2), q(d + 2);
+        for (size_t j = 1; j <= d; ++j) {
+            x[j] = float(int(rng() % 1001) - 500) / 31;
+            c[j] = float(int(rng() % 1001) - 500) / 83;
+            q[j] = j % 2 ? 1024.125f : 0.03125f;
+        }
+        for (const float* center :
+             {static_cast<const float*>(nullptr),
+              static_cast<const float*>(c.data() + 1)}) {
+            double rn, ri, an, ai;
+            eden_code_stats<SIMDLevel::NONE>(
+                    d, x.data() + 1, center, q.data() + 1, rn, ri);
+            eden_code_stats<SL>(d, x.data() + 1, center, q.data() + 1, an, ai);
+            EXPECT_NEAR(rn, an, 1e-13 * (1 + rn));
+            EXPECT_NEAR(ri, ai, 1e-12 * (1 + std::abs(ri)));
+            std::vector<float> a(d + 2, 123), b(a);
+            eden_normalize<SIMDLevel::NONE>(
+                    d, x.data() + 1, center, 3.15f, 0.125f, a.data() + 1);
+            eden_normalize<SL>(
+                    d, x.data() + 1, center, 3.15f, 0.125f, b.data() + 1);
+            EXPECT_EQ(a, b);
+            eden_reconstruct<SIMDLevel::NONE>(
+                    d, x.data() + 1, center, 1.7f, a.data() + 1);
+            eden_reconstruct<SL>(d, x.data() + 1, center, 1.7f, b.data() + 1);
+            for (size_t j = 0; j < a.size(); ++j)
+                EXPECT_NEAR(a[j], b[j], 2e-6 * (1 + std::abs(a[j])));
+        }
+        for (int trial = 0; trial < 5; ++trial) {
+            if (trial == 1 && d)
+                x[1] = std::numeric_limits<float>::quiet_NaN();
+            if (trial == 2) {
+                std::fill(x.begin() + 1, x.end() - 1, 0.0f);
+                if (d > 1) {
+                    x[1] = -0.0f;
+                    x[2] = 0.0f;
+                }
+            }
+            if (trial == 3) {
+                std::fill(
+                        x.begin() + 1,
+                        x.end() - 1,
+                        std::numeric_limits<float>::quiet_NaN());
+                if (d > 9) {
+                    x[3] = -0.0f;
+                    x[9] = 0.0f;
+                }
+            }
+            if (trial == 4) {
+                std::fill(
+                        x.begin() + 1,
+                        x.end() - 1,
+                        std::numeric_limits<float>::infinity());
+                if (d > 8)
+                    x[8] = -std::numeric_limits<float>::infinity();
+            }
+            float rl, rh, al, ah;
+            rowwise_minmax<SIMDLevel::NONE>(d, x.data() + 1, rl, rh);
+            rowwise_minmax<SL>(d, x.data() + 1, al, ah);
+            EXPECT_EQ(std::bit_cast<uint32_t>(rl), std::bit_cast<uint32_t>(al));
+            EXPECT_EQ(std::bit_cast<uint32_t>(rh), std::bit_cast<uint32_t>(ah));
+            for (float scale : {0.0f, 1.3f}) {
+                std::vector<float> a(d + 2, 123), b(a);
+                rowwise_normalize<SIMDLevel::NONE>(
+                        d, x.data() + 1, rl, scale, a.data() + 1);
+                rowwise_normalize<SL>(d, x.data() + 1, al, scale, b.data() + 1);
+                for (size_t j = 0; j < a.size(); ++j) {
+                    if (std::isnan(a[j]))
+                        EXPECT_TRUE(std::isnan(b[j]));
+                    else
+                        EXPECT_EQ(
+                                std::bit_cast<uint32_t>(a[j]),
+                                std::bit_cast<uint32_t>(b[j]));
+                }
+                // Training normalizes in place.
+                auto inplace = x;
+                rowwise_normalize<SL>(
+                        d, inplace.data() + 1, al, scale, inplace.data() + 1);
+                for (size_t j = 1; j <= d; ++j) {
+                    if (std::isnan(a[j]))
+                        EXPECT_TRUE(std::isnan(inplace[j]));
+                    else
+                        EXPECT_EQ(a[j], inplace[j]);
+                }
+            }
+        }
+    }
+    struct Restore {
+        SIMDLevel level = SIMDConfig::get_level();
+        ~Restore() {
+            SIMDConfig::set_level(level);
+        }
+    } restore;
+    for (int d : {1, 7, 8, 9, 31, 65}) {
+        std::vector<float> x(4 * d);
+        for (size_t j = 0; j < x.size(); ++j)
+            x[j] = j < size_t(d) ? 1.25f : float(int(rng() % 1000) - 500) / 73;
+        IndexFlatL2 flat(d);
+        IndexRowwiseMinMax fp32(&flat);
+        IndexRowwiseMinMaxFP16 fp16(&flat);
+        for (IndexRowwiseMinMaxBase* index :
+             {static_cast<IndexRowwiseMinMaxBase*>(&fp32),
+              static_cast<IndexRowwiseMinMaxBase*>(&fp16)}) {
+            std::vector<uint8_t> a(4 * index->sa_code_size()), b(a);
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            index->sa_encode(4, x.data(), a.data());
+            auto ref_train = x;
+            std::vector<float> ref_decode(x.size());
+            index->train_inplace(4, ref_train.data());
+            index->sa_decode(4, a.data(), ref_decode.data());
+            SIMDConfig::set_level(SL);
+            index->sa_encode(4, x.data(), b.data());
+            EXPECT_EQ(a, b);
+            auto tx = x;
+            index->train_inplace(4, tx.data());
+            std::vector<float> decoded(x.size());
+            index->sa_decode(4, b.data(), decoded.data());
+            for (size_t j = 0; j < x.size(); ++j) {
+                EXPECT_NEAR(
+                        ref_train[j],
+                        tx[j],
+                        2e-6 * (1 + std::abs(ref_train[j])));
+                EXPECT_NEAR(
+                        ref_decode[j],
+                        decoded[j],
+                        2e-6 * (1 + std::abs(ref_decode[j])));
+            }
+        }
+    }
+}
+} // namespace
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(TestLoongArchScalarQuantizer, PreprocessingLSX) {
+    check_preprocessing<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(TestLoongArchScalarQuantizer, PreprocessingLASX) {
+    check_preprocessing<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

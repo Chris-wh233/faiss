@@ -12,6 +12,7 @@
 #include <limits>
 
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/quantizer_preprocessing.h>
 #include <faiss/utils/simd_impl/fvec_scale.h>
 #include <faiss/utils/extra_distances.h>
 
@@ -370,3 +371,103 @@ void fvec_sub<THE_SIMD_LEVEL>(
         c[i] = a[i] - b[i];
 }
 } // namespace faiss
+
+namespace faiss::quantizer_preprocessing {
+template <>
+void rowwise_minmax<THE_SIMD_LEVEL>(
+        size_t d,
+        const float* x,
+        float& lo,
+        float& hi) {
+    FloatVec vmin(std::numeric_limits<float>::max());
+    FloatVec vmax(std::numeric_limits<float>::lowest());
+    size_t j = 0;
+    for (; j + FloatVec::width <= d; j += FloatVec::width) {
+        const FloatVec v(x + j);
+        vmin = vmin.min(v);
+        vmax = vmax.max(v);
+    }
+    lo = vmin.reduce_min();
+    hi = vmax.reduce_max();
+    for (; j < d; ++j) {
+        lo = std::min(lo, x[j]);
+        hi = std::max(hi, x[j]);
+    }
+    // Ordered scalar min/max retain the first zero's sign on equal values.
+    // Locate that zero with vector masks when a bound is zero.
+    if (lo == 0.0f || hi == 0.0f) {
+        size_t first = 0;
+        for (; first + FloatVec::width <= d; first += FloatVec::width) {
+            const auto mask = FloatVec(x + first).equal_mask(FloatVec(0.0f));
+            if (mask) {
+                first += std::countr_zero(mask) / 4;
+                break;
+            }
+        }
+        for (; first < d && x[first] != 0.0f; ++first) {
+        }
+        if (first < d) {
+            if (lo == 0.0f)
+                lo = x[first];
+            if (hi == 0.0f)
+                hi = x[first];
+        }
+    }
+}
+template <>
+void rowwise_normalize<THE_SIMD_LEVEL>(
+        size_t d,
+        const float* x,
+        float lo,
+        float scale,
+        float* out) {
+    size_t j = 0;
+    if (scale == 0.0f) {
+        const FloatVec zero(0.0f);
+        for (; j + FloatVec::width <= d; j += FloatVec::width)
+            zero.store(out + j);
+        for (; j < d; ++j)
+            out[j] = 0.0f;
+    } else {
+        const float inv = 1.0f / scale;
+        const FloatVec offset(lo), factor(inv);
+        for (; j + FloatVec::width <= d; j += FloatVec::width)
+            ((FloatVec(x + j) - offset) * factor).store(out + j);
+        for (; j < d; ++j)
+            out[j] = (x[j] - lo) * inv;
+    }
+}
+template <>
+void eden_normalize<THE_SIMD_LEVEL>(
+        size_t d,
+        const float* x,
+        const float* centroid,
+        float sqrt_d,
+        float inv_norm,
+        float* out) {
+    size_t j = 0;
+    const FloatVec root(sqrt_d), inv(inv_norm);
+    for (; j + FloatVec::width <= d; j += FloatVec::width) {
+        const FloatVec c = centroid ? FloatVec(centroid + j) : FloatVec(0.0f);
+        ((FloatVec(x + j) - c) * root * inv).store(out + j);
+    }
+    for (; j < d; ++j)
+        out[j] = (x[j] - (centroid ? centroid[j] : 0.0f)) * sqrt_d * inv_norm;
+}
+template <>
+void eden_reconstruct<THE_SIMD_LEVEL>(
+        size_t d,
+        const float* x,
+        const float* centroid,
+        float scale,
+        float* out) {
+    size_t j = 0;
+    const FloatVec factor(scale);
+    for (; j + FloatVec::width <= d; j += FloatVec::width) {
+        const FloatVec c = centroid ? FloatVec(centroid + j) : FloatVec(0.0f);
+        FloatVec::madd(factor, FloatVec(x + j), c).store(out + j);
+    }
+    for (; j < d; ++j)
+        out[j] = (centroid ? centroid[j] : 0.0f) + scale * x[j];
+}
+} // namespace faiss::quantizer_preprocessing

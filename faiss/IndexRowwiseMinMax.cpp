@@ -8,6 +8,7 @@
 #include <faiss/IndexRowwiseMinMax.h>
 #include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/simd_impl/fvec_scale.h>
+#include <faiss/utils/simd_impl/quantizer_preprocessing.h>
 
 #include <cstdint>
 #include <cstring>
@@ -64,6 +65,16 @@ void sa_encode_impl(
     // useful variables
     const Index* const sub_index = index->index;
     const int d = index->d;
+    const auto minmax_values = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_minmax<SL>;
+            });
+    const auto normalize = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_normalize<SL>;
+            });
 
     // the code size of the subindex
     const size_t old_code_size = sub_index->sa_code_size();
@@ -91,10 +102,7 @@ void sa_encode_impl(
             float maxv = std::numeric_limits<float>::lowest();
 
             const float* const vec_in = x + i * d;
-            for (idx_t j = 0; j < d; j++) {
-                minv = std::min(minv, vec_in[j]);
-                maxv = std::max(maxv, vec_in[j]);
-            }
+            minmax_values(d, vec_in, minv, maxv);
 
             // save the coefficients
             const float scaler = maxv - minv;
@@ -107,16 +115,7 @@ void sa_encode_impl(
             minmax[i].to_floats(actual_scaler, actual_minv);
 
             float* const vec_out = tmp.data() + i * d;
-            if (actual_scaler == 0) {
-                for (idx_t j = 0; j < d; j++) {
-                    vec_out[j] = 0;
-                }
-            } else {
-                float inv_actual_scaler = 1.0f / actual_scaler;
-                for (idx_t j = 0; j < d; j++) {
-                    vec_out[j] = (vec_in[j] - actual_minv) * inv_actual_scaler;
-                }
-            }
+            normalize(d, vec_in, actual_minv, actual_scaler, vec_out);
         }
 
         // do the coding
@@ -225,6 +224,16 @@ void train_inplace_impl(
     // useful variables
     Index* const sub_index = index->index;
     const int d = index->d;
+    const auto minmax_values = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_minmax<SL>;
+            });
+    const auto normalize = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_normalize<SL>;
+            });
 
     // save normalizing coefficients
     std::vector<StorageMinMaxT> minmax(n);
@@ -237,10 +246,7 @@ void train_inplace_impl(
         float maxv = std::numeric_limits<float>::lowest();
 
         float* const vec = x + i * d;
-        for (idx_t j = 0; j < d; j++) {
-            minv = std::min(minv, vec[j]);
-            maxv = std::max(maxv, vec[j]);
-        }
+        minmax_values(d, vec, minv, maxv);
 
         // save the coefficients
         const float scaler = maxv - minv;
@@ -252,21 +258,15 @@ void train_inplace_impl(
         float actual_minv = 0;
         minmax[i].to_floats(actual_scaler, actual_minv);
 
-        if (actual_scaler == 0) {
-            for (idx_t j = 0; j < d; j++) {
-                vec[j] = 0;
-            }
-        } else {
-            float inv_actual_scaler = 1.0f / actual_scaler;
-            for (idx_t j = 0; j < d; j++) {
-                vec[j] = (vec[j] - actual_minv) * inv_actual_scaler;
-            }
-        }
+        normalize(d, vec, actual_minv, actual_scaler, vec);
     }
 
     // train the subindex
     sub_index->train(n, x);
 
+    const auto restore = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() { return fvec_affine<SL>; });
     // rescale data back
 #pragma omp parallel for
     for (idx_t i = 0; i < n; i++) {
@@ -276,9 +276,7 @@ void train_inplace_impl(
 
         float* const vec = x + i * d;
 
-        for (idx_t j = 0; j < d; j++) {
-            vec[j] = vec[j] * scaler + minv;
-        }
+        restore(d, vec, scaler, minv);
     }
 }
 
@@ -290,6 +288,16 @@ void train_impl(IndexRowwiseMinMaxBase* const index, idx_t n, const float* x) {
     // useful variables
     Index* const sub_index = index->index;
     const int d = index->d;
+    const auto minmax_values = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_minmax<SL>;
+            });
+    const auto normalize = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::rowwise_normalize<SL>;
+            });
 
     // temp buffer
     std::vector<float> tmp(n * d);
@@ -301,10 +309,7 @@ void train_impl(IndexRowwiseMinMaxBase* const index, idx_t n, const float* x) {
         float maxv = std::numeric_limits<float>::lowest();
 
         const float* const __restrict vec_in = x + i * d;
-        for (idx_t j = 0; j < d; j++) {
-            minv = std::min(minv, vec_in[j]);
-            maxv = std::max(maxv, vec_in[j]);
-        }
+        minmax_values(d, vec_in, minv, maxv);
 
         const float scaler = maxv - minv;
 
@@ -319,16 +324,7 @@ void train_impl(IndexRowwiseMinMaxBase* const index, idx_t n, const float* x) {
         storage.to_floats(actual_scaler, actual_minv);
 
         float* const __restrict vec_out = tmp.data() + i * d;
-        if (actual_scaler == 0) {
-            for (idx_t j = 0; j < d; j++) {
-                vec_out[j] = 0;
-            }
-        } else {
-            float inv_actual_scaler = 1.0f / actual_scaler;
-            for (idx_t j = 0; j < d; j++) {
-                vec_out[j] = (vec_in[j] - actual_minv) * inv_actual_scaler;
-            }
-        }
+        normalize(d, vec_in, actual_minv, actual_scaler, vec_out);
     }
 
     sub_index->train(n, tmp.data());

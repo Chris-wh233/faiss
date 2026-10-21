@@ -91,6 +91,47 @@ struct FloatVec {
 
 #define THE_SIMD_LEVEL SIMDLevel::LOONGARCH_LASX
 #include <faiss/utils/simd_impl/distances_loongarch-inl.h>
+
+namespace faiss::quantizer_preprocessing {
+template <>
+void eden_code_stats<SIMDLevel::LOONGARCH_LASX>(
+        size_t d,
+        const float* x,
+        const float* centroid,
+        const float* decoded,
+        double& norm,
+        double& ip) {
+    __m256d n0 = (__m256d)__lasx_xvreplgr2vr_w(0), n1 = n0, p0 = n0, p1 = n0;
+    size_t j = 0;
+    for (; j + 8 <= d; j += 8) {
+        const FloatVec q(decoded + j);
+        const FloatVec c = centroid ? FloatVec(centroid + j) : FloatVec(0.0f);
+        const FloatVec residual = FloatVec(x + j) - c;
+        const auto q0 = __lasx_xvfcvtl_d_s(q.data),
+                   q1 = __lasx_xvfcvth_d_s(q.data);
+        const auto r0 = __lasx_xvfcvtl_d_s(residual.data),
+                   r1 = __lasx_xvfcvth_d_s(residual.data);
+        n0 = __lasx_xvfmadd_d(q0, q0, n0);
+        n1 = __lasx_xvfmadd_d(q1, q1, n1);
+        p0 = __lasx_xvfmadd_d(q0, r0, p0);
+        p1 = __lasx_xvfmadd_d(q1, r1, p1);
+    }
+    double norms[4], ips[4];
+    __lasx_xvst((__m256i)__lasx_xvfadd_d(n0, n1), norms, 0);
+    __lasx_xvst((__m256i)__lasx_xvfadd_d(p0, p1), ips, 0);
+    norm = ip = 0.0;
+    for (size_t k = 0; k < 4; ++k) {
+        norm += norms[k];
+        ip += ips[k];
+    }
+    for (; j < d; ++j) {
+        const double q = decoded[j];
+        const float residual = x[j] - (centroid ? centroid[j] : 0.0f);
+        norm += q * q;
+        ip += q * residual;
+    }
+}
+} // namespace faiss::quantizer_preprocessing
 // Only the four metrics with native LoongArch distance kernels are dispatched.
 #define FAISS_IVFFLAT_SCANNER_BASIC_METRICS_ONLY
 #include <faiss/utils/simd_impl/IVFFlatScanner-inl.h>

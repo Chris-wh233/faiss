@@ -480,6 +480,7 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-rvv.h
   utils/simd_impl/distances_autovec-inl.h
   utils/simd_impl/distances_loongarch-inl.h
+  utils/simd_impl/quantizer_preprocessing.h
   utils/simd_impl/fvec_scale.h
   utils/simd_impl/pq_tables_simdlib256.h
   impl/pq_code_distance/pq_code_distance-loongarch.h
