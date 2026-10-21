@@ -181,6 +181,17 @@ size_t loongarch_argmin(const float* values, size_t n, float limit) {
 }
 } // namespace
 
+template <>
+size_t fvec_L2sqr_blas_cmax<THE_SIMD_LEVEL>(
+        size_t n,
+        float* ip,
+        const float* y_norms,
+        float x_norm,
+        float limit) {
+    fvec_L2sqr_blas<THE_SIMD_LEVEL>(n, ip, y_norms, x_norm);
+    return loongarch_argmin(ip, n, limit);
+}
+
 #define DEFINE_LOONGARCH_DISTANCE(name, metric)                            \
     template <>                                                            \
     float name<THE_SIMD_LEVEL>(const float* x, const float* y, size_t d) { \

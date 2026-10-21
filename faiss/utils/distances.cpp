@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include <omp.h>
@@ -428,6 +429,10 @@ void exhaustive_L2sqr_blas_default_impl(
         size_t ny,
         BlockResultHandler& res,
         const float* y_norms = nullptr) {
+    constexpr bool native_top1 = (SL == SIMDLevel::LOONGARCH_LSX ||
+                                  SL == SIMDLevel::LOONGARCH_LASX) &&
+            std::is_same_v<BlockResultHandler,
+                           Top1BlockResultHandler<CMax<float, int64_t>>>;
     // BLAS does not like empty matrices
     if (nx == 0 || ny == 0) {
         return;
@@ -484,7 +489,17 @@ void exhaustive_L2sqr_blas_default_impl(
             for (size_t i = i0; i < i1; i++) {
                 float* ip_line = ip_block.get() + (i - i0) * (j1 - j0);
 
-                if constexpr (
+                if constexpr (native_top1) {
+                    const size_t idx = fvec_L2sqr_blas_cmax<SL>(
+                            j1 - j0,
+                            ip_line,
+                            y_norms + j0,
+                            x_norms[i],
+                            res.dis_tab[i]);
+                    if (idx != j1 - j0) {
+                        res.add_result(i, ip_line[idx], j0 + idx);
+                    }
+                } else if constexpr (
                         SL == SIMDLevel::LOONGARCH_LSX ||
                         SL == SIMDLevel::LOONGARCH_LASX) {
                     fvec_L2sqr_blas<SL>(
@@ -515,7 +530,9 @@ void exhaustive_L2sqr_blas_default_impl(
                     }
                 }
             }
-            res.add_results(j0, j1, ip_block.get());
+            if constexpr (!native_top1) {
+                res.add_results(j0, j1, ip_block.get());
+            }
         }
         res.end_multiple();
         InterruptCallback::check();

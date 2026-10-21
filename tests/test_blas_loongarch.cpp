@@ -94,7 +94,7 @@ void check_search() {
         fvec_norms_L2sqr(norms.data(), y.data(), d, ny);
         for (int bs : {7, 8, 17, 64}) {
             distance_compute_blas_database_bs = bs;
-            for (size_t k : {3, 101, 140}) {
+            for (size_t k : {1, 3, 101, 140}) {
                 for (bool precomputed : {false, true}) {
                     const float* yn = precomputed ? norms.data() : nullptr;
                     std::vector<float> ref(nx * k), actual(nx * k);
@@ -143,7 +143,7 @@ void check_search() {
                             ref.distances + ref.lims[nx],
                             actual.distances));
         }
-        // Selectors still use the sequential search and preserve filtering.
+        // A contiguous selector restricts the database and restores global ids.
         IDSelectorRange sel(7, 29);
         std::vector<float> ref(nx * 3), actual(nx * 3);
         std::vector<idx_t> ri(nx * 3), ai(nx * 3);
@@ -175,6 +175,126 @@ void check_search() {
         EXPECT_EQ(ai, ri);
     }
 }
+
+template <SIMDLevel SL>
+void check_top1_kernel() {
+    if (!SIMDConfig::is_simd_level_available(SL)) {
+        GTEST_SKIP();
+    }
+    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float max = std::numeric_limits<float>::max();
+    for (size_t n : {0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 65}) {
+        for (float fill : {nan, inf, max, 5.0f}) {
+            for (float limit : {max, 5.0f, 0.0f}) {
+                for (size_t pos = 0; pos <= n; ++pos) {
+                    std::vector<float> ip(n + 2, 0), norms(n + 2, fill), ref(n);
+                    if (pos < n) {
+                        norms[pos + 1] = -1;
+                        norms[n] = -2; // after clamping, first zero must win
+                    }
+                    float best = limit;
+                    size_t expected = n;
+                    for (size_t j = 0; j < n; ++j) {
+                        const float dis =
+                                std::fma(-2.0f, ip[j + 1], norms[j + 1]);
+                        ref[j] = dis < 0 ? 0 : dis;
+                        if (ref[j] < best) {
+                            best = ref[j];
+                            expected = j;
+                        }
+                    }
+                    EXPECT_EQ(
+                            fvec_L2sqr_blas_cmax<SL>(
+                                    n,
+                                    ip.data() + 1,
+                                    norms.data() + 1,
+                                    0,
+                                    limit),
+                            expected);
+                    for (size_t j = 0; j < n; ++j)
+                        expect_distance(ip[j + 1], ref[j]);
+                    EXPECT_EQ(ip.front(), 0);
+                    EXPECT_EQ(ip.back(), 0);
+                }
+            }
+        }
+    }
+}
+
+template <SIMDLevel SL>
+void check_top1_edges() {
+    if (!SIMDConfig::is_simd_level_available(SL)) {
+        GTEST_SKIP();
+    }
+    BlasGuard guard;
+    distance_compute_blas_threshold = 0;
+    distance_compute_blas_query_bs = 3;
+    distance_compute_blas_database_bs = 7;
+    constexpr size_t d = 9, nx = 7, ny = 33;
+    const float max = std::numeric_limits<float>::max();
+    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<float> x(nx * d, 0), y(ny * d, 0), norms(ny);
+    std::vector<float> actual(nx), ref(nx);
+    std::vector<idx_t> ai(nx), ri(nx);
+    // All invalid, ordinary ties, and clipped ties spanning database blocks.
+    for (float fill : {nan, inf, max, 0.0f, 5.0f}) {
+        for (bool clipped : {false, true}) {
+            std::fill(norms.begin(), norms.end(), fill);
+            if (clipped) {
+                norms[5] = -1;
+                norms[8] = -2;
+                norms[31] = -3;
+            }
+            SIMDConfig::set_level(SIMDLevel::NONE);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    1,
+                    ref.data(),
+                    ri.data(),
+                    norms.data());
+            SIMDConfig::set_level(SL);
+            knn_L2sqr(
+                    x.data(),
+                    y.data(),
+                    d,
+                    nx,
+                    ny,
+                    1,
+                    actual.data(),
+                    ai.data(),
+                    norms.data());
+            EXPECT_EQ(actual, ref);
+            EXPECT_EQ(ai, ri);
+            if (clipped)
+                EXPECT_EQ(ai[0], fill == 0 ? 0 : 5);
+        }
+    }
+    // Nonfinite queries cannot replace the handler's finite neutral value.
+    for (float fill : {nan, inf}) {
+        std::fill(x.begin(), x.end(), fill);
+        knn_L2sqr(x.data(), y.data(), d, nx, ny, 1, actual.data(), ai.data());
+        for (size_t i = 0; i < nx; ++i) {
+            EXPECT_EQ(actual[i], max);
+            EXPECT_EQ(ai[i], -1);
+        }
+    }
+    knn_L2sqr(x.data(), y.data(), d, nx, 0, 1, actual.data(), ai.data());
+    for (size_t i = 0; i < nx; ++i) {
+        EXPECT_EQ(actual[i], max);
+        EXPECT_EQ(ai[i], -1);
+    }
+    actual[0] = -777;
+    ai[0] = -777;
+    knn_L2sqr(x.data(), y.data(), d, 0, ny, 1, actual.data(), ai.data());
+    EXPECT_EQ(actual[0], -777);
+    EXPECT_EQ(ai[0], -777);
+}
 } // namespace
 
 #ifdef COMPILE_SIMD_LOONGARCH_LSX
@@ -191,5 +311,22 @@ TEST(LoongArchBlas, LASXCorrection) {
 }
 TEST(LoongArchBlas, LASXSearch) {
     check_search<SIMDLevel::LOONGARCH_LASX>();
+}
+#endif
+
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+TEST(LoongArchBlas, LSXTop1Kernel) {
+    check_top1_kernel<SIMDLevel::LOONGARCH_LSX>();
+}
+TEST(LoongArchBlas, LSXTop1Edges) {
+    check_top1_edges<SIMDLevel::LOONGARCH_LSX>();
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+TEST(LoongArchBlas, LASXTop1Kernel) {
+    check_top1_kernel<SIMDLevel::LOONGARCH_LASX>();
+}
+TEST(LoongArchBlas, LASXTop1Edges) {
+    check_top1_edges<SIMDLevel::LOONGARCH_LASX>();
 }
 #endif

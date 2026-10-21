@@ -18,4 +18,15 @@ namespace faiss {
 template <SIMDLevel SL>
 void fvec_L2sqr_blas(size_t n, float* ip, const float* y_norms, float x_norm);
 
+// Correct a row and return the first index strictly below limit, or n if
+// no candidate exists. Apply the clamp before comparing candidates so that
+// distinct negative roundoff values tie at zero.
+template <SIMDLevel SL>
+size_t fvec_L2sqr_blas_cmax(
+        size_t n,
+        float* ip,
+        const float* y_norms,
+        float x_norm,
+        float limit);
+
 } // namespace faiss
