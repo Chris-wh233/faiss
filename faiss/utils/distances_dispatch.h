@@ -28,23 +28,34 @@
 
 namespace faiss {
 
+constexpr int AVAILABLE_SIMD_LEVELS_DISTANCES =
+        AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE | AVAILABLE_SIMD_LEVELS_LOONGARCH;
+constexpr int AVAILABLE_SIMD_LEVELS_DISTANCE_ARITHMETIC =
+        AVAILABLE_SIMD_LEVELS_BASE_NO_AVX512 | AVAILABLE_SIMD_LEVELS_LOONGARCH;
+constexpr int AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS =
+        AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH;
+constexpr int AVAILABLE_SIMD_LEVELS_EXTRA_DISTANCES =
+        AVAILABLE_SIMD_LEVELS_NONE | AVAILABLE_SIMD_LEVELS_LOONGARCH;
+constexpr int AVAILABLE_SIMD_LEVELS_DISTANCE_POSTPROCESS =
+        AVAILABLE_SIMD_LEVELS_NONE | AVAILABLE_SIMD_LEVELS_LOONGARCH;
+
 inline float fvec_L1_dispatch(const float* x, const float* y, size_t d) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { return fvec_L1<SL>(x, y, d); });
 }
 
 inline float fvec_Linf_dispatch(const float* x, const float* y, size_t d) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { return fvec_Linf<SL>(x, y, d); });
 }
 
 inline float fvec_norm_L2sqr_dispatch(const float* x, size_t d) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { return fvec_norm_L2sqr<SL>(x, d); });
 }
 
 inline float fvec_L2sqr_dispatch(const float* x, const float* y, size_t d) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { return fvec_L2sqr<SL>(x, y, d); });
 }
 
@@ -52,7 +63,7 @@ inline float fvec_inner_product_dispatch(
         const float* x,
         const float* y,
         size_t d) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { return fvec_inner_product<SL>(x, y, d); });
 }
 
@@ -67,7 +78,7 @@ inline void fvec_inner_product_batch_4_dispatch(
         float& dis1,
         float& dis2,
         float& dis3) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 fvec_inner_product_batch_4<SL>(
                         x, y0, y1, y2, y3, d, dis0, dis1, dis2, dis3);
@@ -85,7 +96,7 @@ inline void fvec_L2sqr_batch_4_dispatch(
         float& dis1,
         float& dis2,
         float& dis3) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 fvec_L2sqr_batch_4<SL>(
                         x, y0, y1, y2, y3, d, dis0, dis1, dis2, dis3);
@@ -100,7 +111,7 @@ inline void fvec_L2sqr_ny_transposed_dispatch(
         size_t d,
         size_t d_offset,
         size_t ny) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 fvec_L2sqr_ny_transposed<SL>(
                         dis, x, y, y_sqlen, d, d_offset, ny);
@@ -113,7 +124,7 @@ inline void fvec_inner_products_ny_dispatch(
         const float* y,
         size_t d,
         size_t ny) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 fvec_inner_products_ny<SL>(ip, x, y, d, ny);
             });
@@ -125,7 +136,7 @@ inline void fvec_L2sqr_ny_dispatch(
         const float* y,
         size_t d,
         size_t ny) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { fvec_L2sqr_ny<SL>(dis, x, y, d, ny); });
 }
 
@@ -135,7 +146,7 @@ inline size_t fvec_L2sqr_ny_nearest_dispatch(
         const float* y,
         size_t d,
         size_t ny) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 return fvec_L2sqr_ny_nearest<SL>(
                         distances_tmp_buffer, x, y, d, ny);
@@ -150,7 +161,7 @@ inline size_t fvec_L2sqr_ny_nearest_y_transposed_dispatch(
         size_t d,
         size_t d_offset,
         size_t ny) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 return fvec_L2sqr_ny_nearest_y_transposed<SL>(
                         distances_tmp_buffer, x, y, y_sqlen, d, d_offset, ny);
@@ -163,7 +174,7 @@ inline void fvec_madd_dispatch(
         float bf,
         const float* b,
         float* c) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() { fvec_madd<SL>(n, a, bf, b, c); });
 }
 
@@ -173,7 +184,7 @@ inline int fvec_madd_and_argmin_dispatch(
         float bf,
         const float* b,
         float* c) {
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 return fvec_madd_and_argmin<SL>(n, a, bf, b, c);
             });
@@ -184,7 +195,7 @@ inline void fvec_sub_dispatch(
         const float* a,
         const float* b,
         float* c) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_NO_AVX512>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_ARITHMETIC>(
             [&]<SIMDLevel level>() { fvec_sub<level>(d, a, b, c); });
 }
 
@@ -193,7 +204,7 @@ inline void fvec_add_dispatch(
         const float* a,
         const float* b,
         float* c) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_NO_AVX512>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_ARITHMETIC>(
             [&]<SIMDLevel level>() { fvec_add<level>(d, a, b, c); });
 }
 
@@ -202,7 +213,7 @@ inline void fvec_add_scalar_dispatch(
         const float* a,
         float b,
         float* c) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_NO_AVX512>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_ARITHMETIC>(
             [&]<SIMDLevel level>() { fvec_add<level>(d, a, b, c); });
 }
 
@@ -244,13 +255,12 @@ auto with_VectorDistance(
             return action(vd);
         };
 
-        constexpr bool has_simd = mt == METRIC_INNER_PRODUCT ||
+        constexpr bool is_basic_metric = mt == METRIC_INNER_PRODUCT ||
                 mt == METRIC_L2 || mt == METRIC_L1 || mt == METRIC_Linf;
-        if constexpr (!has_simd) {
-            return call.template operator()<SIMDLevel::NONE>();
-        } else {
-            return with_simd_level_with_sve(call);
-        }
+        constexpr int levels = is_basic_metric
+                ? AVAILABLE_SIMD_LEVELS_DISTANCES
+                : AVAILABLE_SIMD_LEVELS_EXTRA_DISTANCES;
+        return with_selected_simd_levels<levels>(call);
     };
     return with_metric_type(metric, dispatch_metric);
 }

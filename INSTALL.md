@@ -99,6 +99,35 @@ The optional requirements are:
 Indications for specific configurations are available in the [troubleshooting
 section of the wiki](https://github.com/facebookresearch/faiss/wiki/Troubleshooting).
 
+### Building on Linux LoongArch64
+
+For a CPU build with runtime LSX/LASX dispatch, use a C++20 compiler that
+supports the LoongArch intrinsics and an LP64 BLAS implementation, such as
+OpenBLAS:
+
+``` shell
+cmake -S . -B build -DFAISS_ENABLE_GPU=OFF -DFAISS_ENABLE_MKL=OFF \
+  -DFAISS_OPT_LEVEL=dd -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target faiss swigfaiss -j
+```
+
+CMake checks LSX and LASX compiler support separately. Each supported SIMD
+implementation is compiled in its own translation unit. Common code is built
+without LSX/LASX instructions, and Linux hardware capabilities determine which
+implementation can run. `FAISS_OPT_LEVEL=generic` builds without these SIMD
+implementations. Set `FAISS_ENABLE_PYTHON=OFF` for a C++-only build.
+
+The Python bindings use the regular `swigfaiss` module in both configurations;
+the DD library selects the SIMD level internally. Follow the Python installation
+steps below. `faiss.SIMDConfig.get_level_name()` reports the selected level.
+For testing a DD build, set `FAISS_SIMD_LEVEL` to `NONE`, `LOONGARCH_LSX`,
+or `LOONGARCH_LASX`. This override bypasses hardware detection: only force a
+level supported by the running CPU. If that level was not compiled, the library
+uses the nearest compiled fallback.
+
+See [LoongArch64 CPU support](faiss/docs/loongarch.md) for kernel coverage,
+validation configurations and numerical behavior.
+
 ### Building with NVIDIA cuVS
 
 [cuVS](https://docs.rapids.ai/api/cuvs/stable/) contains state-of-the-art implementations of several algorithms for running approximate nearest neighbors and clustering on the GPU. It is built on top of the [RAPIDS RAFT](https://github.com/rapidsai/raft) library of high performance machine learning primitives. Building Faiss with cuVS enabled allows a user to choose between regular GPU implementations in Faiss and cuVS implementations for specific algorithms.

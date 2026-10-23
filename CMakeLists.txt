@@ -129,6 +129,15 @@ if(FAISS_ENABLE_CUVS AND NOT TARGET rmm::rmm)
   find_package(rmm REQUIRED)
 endif()
 
+# Common LoongArch code must build without optional SIMD extensions.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mno-lsx;-mno-lasx" FAISS_COMPILER_SUPPORTS_LOONGARCH_BASELINE)
+  if(NOT FAISS_COMPILER_SUPPORTS_LOONGARCH_BASELINE)
+    message(FATAL_ERROR "The LoongArch compiler must support -mno-lsx -mno-lasx.")
+  endif()
+endif()
+
 add_subdirectory(faiss)
 
 if(FAISS_ENABLE_GPU)

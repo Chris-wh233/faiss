@@ -6,6 +6,7 @@
  */
 
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/distances_kernels.h>
 
 #include <algorithm>
 #include <cassert>
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include <omp.h>
@@ -204,12 +206,13 @@ void fvec_norms_L2(
         const float* __restrict x,
         size_t d,
         size_t nx) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nx > 10000)
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            nr[i] = sqrtf(fvec_norm_L2sqr<SL>(x + i * d, d));
-        }
-    });
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    nr[i] = sqrtf(fvec_norm_L2sqr<SL>(x + i * d, d));
+                }
+            });
 }
 
 void fvec_norms_L2sqr(
@@ -217,12 +220,13 @@ void fvec_norms_L2sqr(
         const float* __restrict x,
         size_t d,
         size_t nx) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nx > 10000)
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            nr[i] = fvec_norm_L2sqr<SL>(x + i * d, d);
-        }
-    });
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    nr[i] = fvec_norm_L2sqr<SL>(x + i * d, d);
+                }
+            });
 }
 
 // The following is a workaround to a problem
@@ -237,34 +241,32 @@ void fvec_norms_L2sqr(
 // off to a codepath without omp.
 
 void fvec_renorm_L2_noomp(size_t d, size_t nx, float* __restrict x) {
-    with_simd_level([&]<SIMDLevel SL>() {
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            float* __restrict xi = x + i * d;
-            float nr = fvec_norm_L2sqr<SL>(xi, d);
-            if (nr > 0) {
-                const float inv_nr = 1.0 / sqrtf(nr);
-                for (size_t j = 0; j < d; j++) {
-                    xi[j] *= inv_nr;
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    float* __restrict xi = x + i * d;
+                    float nr = fvec_norm_L2sqr<SL>(xi, d);
+                    if (nr > 0) {
+                        const float inv_nr = 1.0 / sqrtf(nr);
+                        detail::fvec_scale<SL>(d, xi, inv_nr);
+                    }
                 }
-            }
-        }
-    });
+            });
 }
 
 void fvec_renorm_L2_omp(size_t d, size_t nx, float* __restrict x) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nx > 10000)
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            float* __restrict xi = x + i * d;
-            float nr = fvec_norm_L2sqr<SL>(xi, d);
-            if (nr > 0) {
-                const float inv_nr = 1.0 / sqrtf(nr);
-                for (size_t j = 0; j < d; j++) {
-                    xi[j] *= inv_nr;
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    float* __restrict xi = x + i * d;
+                    float nr = fvec_norm_L2sqr<SL>(xi, d);
+                    if (nr > 0) {
+                        const float inv_nr = 1.0 / sqrtf(nr);
+                        detail::fvec_scale<SL>(d, xi, inv_nr);
+                    }
                 }
-            }
-        }
-    });
+            });
 }
 
 void fvec_renorm_L2(size_t d, size_t nx, float* __restrict x) {
@@ -302,24 +304,25 @@ void exhaustive_inner_product_seq(
 #pragma omp parallel num_threads(nt)
     {
         SingleResultHandler resi(res);
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+                [&]<SIMDLevel SL>() {
 #pragma omp for
-            for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-                const float* x_i = x + i * d;
-                const float* y_j = y;
+                    for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                        const float* x_i = x + i * d;
+                        const float* y_j = y;
 
-                resi.begin(i);
+                        resi.begin(i);
 
-                for (size_t j = 0; j < ny; j++, y_j += d) {
-                    if (!res.is_in_selection(j)) {
-                        continue;
+                        for (size_t j = 0; j < ny; j++, y_j += d) {
+                            if (!res.is_in_selection(j)) {
+                                continue;
+                            }
+                            float ip = fvec_inner_product<SL>(x_i, y_j, d);
+                            resi.add_result(ip, j);
+                        }
+                        resi.end();
                     }
-                    float ip = fvec_inner_product<SL>(x_i, y_j, d);
-                    resi.add_result(ip, j);
-                }
-                resi.end();
-            }
-        });
+                });
     }
 }
 
@@ -343,22 +346,23 @@ void exhaustive_L2sqr_seq(
 #pragma omp parallel num_threads(nt)
     {
         SingleResultHandler resi(res);
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+                [&]<SIMDLevel SL>() {
 #pragma omp for
-            for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-                const float* x_i = x + i * d;
-                const float* y_j = y;
-                resi.begin(i);
-                for (size_t j = 0; j < ny; j++, y_j += d) {
-                    if (!res.is_in_selection(j)) {
-                        continue;
+                    for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                        const float* x_i = x + i * d;
+                        const float* y_j = y;
+                        resi.begin(i);
+                        for (size_t j = 0; j < ny; j++, y_j += d) {
+                            if (!res.is_in_selection(j)) {
+                                continue;
+                            }
+                            float disij = fvec_L2sqr<SL>(x_i, y_j, d);
+                            resi.add_result(disij, j);
+                        }
+                        resi.end();
                     }
-                    float disij = fvec_L2sqr<SL>(x_i, y_j, d);
-                    resi.add_result(disij, j);
-                }
-                resi.end();
-            }
-        });
+                });
     }
 }
 
@@ -423,9 +427,10 @@ void exhaustive_inner_product_blas_tiles(
     }
 }
 
-// distance correction is an operator that can be applied to transform
-// the distances
-template <class BlockResultHandler, class QueryTiles>
+template <
+        SIMDLevel SL = SIMDLevel::NONE,
+        class BlockResultHandler,
+        class QueryTiles>
 void exhaustive_L2sqr_blas_tiles(
         QueryTiles& queries,
         const float* y,
@@ -434,6 +439,9 @@ void exhaustive_L2sqr_blas_tiles(
         size_t ny,
         BlockResultHandler& res,
         const float* y_norms = nullptr) {
+    constexpr bool is_top1 = std::is_same_v<
+            BlockResultHandler,
+            Top1BlockResultHandler<CMax<float, int64_t>>>;
     // BLAS does not like empty matrices
     if (nx == 0 || ny == 0) {
         return;
@@ -492,24 +500,31 @@ void exhaustive_L2sqr_blas_tiles(
             for (size_t i = i0; i < i1; i++) {
                 float* ip_line = ip_block.get() + (i - i0) * (j1 - j0);
 
-                for (size_t j = j0; j < j1; j++) {
-                    float ip = *ip_line;
-                    float dis = x_norms[i] + y_norms[j] - 2 * ip;
-
-                    if (!res.is_in_selection(j)) {
-                        dis = HUGE_VALF;
+                if constexpr (is_top1) {
+                    const size_t idx = detail::fvec_L2sqr_blas_cmax<SL>(
+                            j1 - j0,
+                            ip_line,
+                            y_norms + j0,
+                            x_norms[i],
+                            res.dis_tab[i]);
+                    if (idx != j1 - j0) {
+                        res.add_result(i, ip_line[idx], j0 + idx);
                     }
-                    // negative values can occur for identical vectors
-                    // due to roundoff errors
-                    if (dis < 0) {
-                        dis = 0;
+                } else {
+                    detail::fvec_L2sqr_blas<SL>(
+                            j1 - j0, ip_line, y_norms + j0, x_norms[i]);
+                    if (res.sel) {
+                        for (size_t j = j0; j < j1; ++j) {
+                            if (!res.is_in_selection(j)) {
+                                ip_line[j - j0] = HUGE_VALF;
+                            }
+                        }
                     }
-
-                    *ip_line = dis;
-                    ip_line++;
                 }
             }
-            res.add_results(j0, j1, ip_block.get());
+            if constexpr (!is_top1) {
+                res.add_results(j0, j1, ip_block.get());
+            }
         }
         res.end_multiple();
         InterruptCallback::check();
@@ -528,7 +543,7 @@ void exhaustive_inner_product_blas(
     exhaustive_inner_product_blas_tiles(queries, y, d, nx, ny, res);
 }
 
-template <class BlockResultHandler>
+template <class BlockResultHandler, SIMDLevel SL = SIMDLevel::NONE>
 void exhaustive_L2sqr_blas_default_impl(
         const float* x,
         const float* y,
@@ -538,7 +553,7 @@ void exhaustive_L2sqr_blas_default_impl(
         BlockResultHandler& res,
         const float* y_norms = nullptr) {
     Fp32QueryTiles queries{x, d};
-    exhaustive_L2sqr_blas_tiles(queries, y, d, nx, ny, res, y_norms);
+    exhaustive_L2sqr_blas_tiles<SL>(queries, y, d, nx, ny, res, y_norms);
 }
 
 template <class BlockResultHandler>
@@ -550,7 +565,11 @@ void exhaustive_L2sqr_blas(
         size_t ny,
         BlockResultHandler& res,
         const float* y_norms = nullptr) {
-    exhaustive_L2sqr_blas_default_impl(x, y, d, nx, ny, res, y_norms);
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_POSTPROCESS>(
+            [&]<SIMDLevel SL>() {
+                exhaustive_L2sqr_blas_default_impl<BlockResultHandler, SL>(
+                        x, y, d, nx, ny, res, y_norms);
+            });
 }
 
 } // anonymous namespace
@@ -572,7 +591,7 @@ void exhaustive_L2sqr_blas<Top1BlockResultHandler<CMax<float, int64_t>>>(
         return;
     }
 
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
             [&]<SIMDLevel SL>() {
                 if constexpr (
                         SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
@@ -581,8 +600,8 @@ void exhaustive_L2sqr_blas<Top1BlockResultHandler<CMax<float, int64_t>>>(
                             x, y, d, nx, ny, res, y_norms);
                 } else {
                     exhaustive_L2sqr_blas_default_impl<
-                            Top1BlockResultHandler<CMax<float, int64_t>>>(
-                            x, y, d, nx, ny, res, y_norms);
+                            Top1BlockResultHandler<CMax<float, int64_t>>,
+                            SL>(x, y, d, nx, ny, res, y_norms);
                 }
             });
 }
@@ -598,7 +617,11 @@ void exhaustive_L2sqr_blas_fp16(
         BlockResultHandler& res,
         const float* y_norms) {
     Fp16QueryTiles queries(x, d, nx);
-    exhaustive_L2sqr_blas_tiles(queries, y, d, nx, ny, res, y_norms);
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_POSTPROCESS>(
+            [&]<SIMDLevel SL>() {
+                exhaustive_L2sqr_blas_tiles<SL>(
+                        queries, y, d, nx, ny, res, y_norms);
+            });
 }
 
 template <>
@@ -610,19 +633,18 @@ void exhaustive_L2sqr_blas_fp16<Top1BlockResultHandler<CMax<float, int64_t>>>(
         size_t ny,
         Top1BlockResultHandler<CMax<float, int64_t>>& res,
         const float* y_norms) {
-    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE>(
-            [&]<SIMDLevel SL>() {
-                if constexpr (
-                        SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
-                        SL == SIMDLevel::ARM_SVE) {
-                    exhaustive_L2sqr_blas_cmax_fp16<SL>(
-                            x, y, d, nx, ny, res, y_norms);
-                } else {
-                    Fp16QueryTiles queries(x, d, nx);
-                    exhaustive_L2sqr_blas_tiles(
-                            queries, y, d, nx, ny, res, y_norms);
-                }
-            });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_DISTANCES>([&]<SIMDLevel SL>() {
+        if constexpr (
+                SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
+                SL == SIMDLevel::ARM_SVE) {
+            exhaustive_L2sqr_blas_cmax_fp16<SL>(x, y, d, nx, ny, res, y_norms);
+        } else {
+            Fp16QueryTiles queries(x, d, nx);
+            exhaustive_L2sqr_blas_tiles<SL>(
+                    queries, y, d, nx, ny, res, y_norms);
+        }
+    });
 }
 
 struct Run_search_inner_product {
@@ -711,7 +733,7 @@ int distance_compute_min_k_reservoir = 100;
 // queries, for the case where nx < nthreads and the database is large.
 static constexpr size_t kDbParallelMinVectors = 10000;
 
-template <class C>
+template <class C, SIMDLevel SL = SIMDLevel::NONE>
 static void knn_db_parallel_impl(
         const float* x,
         const float* y,
@@ -804,22 +826,35 @@ static void knn_db_parallel_impl(
                 for (size_t i = 0; i < nx; i++) {
                     T* heap_dis = my_dis + i * k;
                     TI* heap_ids = my_ids + i * k;
-                    const float* ip_line = ip_block.get() + i * block_ny;
+                    float* ip_line = ip_block.get() + i * block_ny;
                     T thresh = heap_dis[0];
+
+                    if constexpr (C::is_max) {
+                        const size_t j0 = j_begin + jj0;
+                        if (k == 1) {
+                            const size_t idx = detail::fvec_L2sqr_blas_cmax<SL>(
+                                    block_ny,
+                                    ip_line,
+                                    y_norms + j0,
+                                    x_norms[i],
+                                    thresh);
+                            if (idx != block_ny) {
+                                heap_replace_top<C>(
+                                        k,
+                                        heap_dis,
+                                        heap_ids,
+                                        ip_line[idx],
+                                        j0 + idx);
+                            }
+                            continue;
+                        }
+                        detail::fvec_L2sqr_blas<SL>(
+                                block_ny, ip_line, y_norms + j0, x_norms[i]);
+                    }
 
                     for (size_t jj = 0; jj < block_ny; jj++) {
                         size_t global_j = j_begin + jj0 + jj;
-                        float ip = ip_line[jj];
-                        T dis;
-
-                        if constexpr (C::is_max) {
-                            dis = x_norms[i] + y_norms[global_j] - 2 * ip;
-                            if (dis < 0) {
-                                dis = 0;
-                            }
-                        } else {
-                            dis = ip;
-                        }
+                        const T dis = ip_line[jj];
 
                         if (C::cmp(thresh, dis)) {
                             heap_replace_top<C>(
@@ -961,8 +996,11 @@ void knn_L2sqr(
     }
 
     if (should_use_db_parallel(nx, ny, sel)) {
-        knn_db_parallel_impl<CMax<float, int64_t>>(
-                x, y, d, nx, ny, k, vals, ids, y_norm2);
+        with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_POSTPROCESS>(
+                [&]<SIMDLevel SL>() {
+                    knn_db_parallel_impl<CMax<float, int64_t>, SL>(
+                            x, y, d, nx, ny, k, vals, ids, y_norm2);
+                });
     } else {
         Run_search_L2sqr r;
         // @lint-ignore CLANGTIDY facebook-hte-NullableDereference
@@ -1153,21 +1191,23 @@ void fvec_inner_products_by_idx(
         size_t d,
         size_t nx,
         size_t ny) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for
-        for (int64_t j = 0; j < static_cast<int64_t>(nx); j++) {
-            const int64_t* __restrict idsj = ids + j * ny;
-            const float* xj = x + j * d;
-            float* __restrict ipj = ip + j * ny;
-            for (size_t i = 0; i < ny; i++) {
-                if (idsj[i] < 0) {
-                    ipj[i] = -INFINITY;
-                } else {
-                    ipj[i] = fvec_inner_product<SL>(xj, y + d * idsj[i], d);
+                for (int64_t j = 0; j < static_cast<int64_t>(nx); j++) {
+                    const int64_t* __restrict idsj = ids + j * ny;
+                    const float* xj = x + j * d;
+                    float* __restrict ipj = ip + j * ny;
+                    for (size_t i = 0; i < ny; i++) {
+                        if (idsj[i] < 0) {
+                            ipj[i] = -INFINITY;
+                        } else {
+                            ipj[i] = fvec_inner_product<SL>(
+                                    xj, y + d * idsj[i], d);
+                        }
+                    }
                 }
-            }
-        }
-    });
+            });
 }
 
 /* compute the inner product between x and a subset y of ny vectors,
@@ -1180,21 +1220,22 @@ void fvec_L2sqr_by_idx(
         size_t d,
         size_t nx,
         size_t ny) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for
-        for (int64_t j = 0; j < static_cast<int64_t>(nx); j++) {
-            const int64_t* __restrict idsj = ids + j * ny;
-            const float* xj = x + j * d;
-            float* __restrict disj = dis + j * ny;
-            for (size_t i = 0; i < ny; i++) {
-                if (idsj[i] < 0) {
-                    disj[i] = INFINITY;
-                } else {
-                    disj[i] = fvec_L2sqr<SL>(xj, y + d * idsj[i], d);
+                for (int64_t j = 0; j < static_cast<int64_t>(nx); j++) {
+                    const int64_t* __restrict idsj = ids + j * ny;
+                    const float* xj = x + j * d;
+                    float* __restrict disj = dis + j * ny;
+                    for (size_t i = 0; i < ny; i++) {
+                        if (idsj[i] < 0) {
+                            disj[i] = INFINITY;
+                        } else {
+                            disj[i] = fvec_L2sqr<SL>(xj, y + d * idsj[i], d);
+                        }
+                    }
                 }
-            }
-        }
-    });
+            });
 }
 
 void pairwise_indexed_L2sqr(
@@ -1205,16 +1246,18 @@ void pairwise_indexed_L2sqr(
         const float* y,
         const int64_t* iy,
         float* dis) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 1)
-        for (int64_t j = 0; j < static_cast<int64_t>(n); j++) {
-            if (ix[j] >= 0 && iy[j] >= 0) {
-                dis[j] = fvec_L2sqr<SL>(x + d * ix[j], y + d * iy[j], d);
-            } else {
-                dis[j] = INFINITY;
-            }
-        }
-    });
+                for (int64_t j = 0; j < static_cast<int64_t>(n); j++) {
+                    if (ix[j] >= 0 && iy[j] >= 0) {
+                        dis[j] =
+                                fvec_L2sqr<SL>(x + d * ix[j], y + d * iy[j], d);
+                    } else {
+                        dis[j] = INFINITY;
+                    }
+                }
+            });
 }
 
 void pairwise_indexed_inner_product(
@@ -1225,17 +1268,18 @@ void pairwise_indexed_inner_product(
         const float* y,
         const int64_t* iy,
         float* dis) {
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 1)
-        for (int64_t j = 0; j < static_cast<int64_t>(n); j++) {
-            if (ix[j] >= 0 && iy[j] >= 0) {
-                dis[j] =
-                        fvec_inner_product<SL>(x + d * ix[j], y + d * iy[j], d);
-            } else {
-                dis[j] = -INFINITY;
-            }
-        }
-    });
+                for (int64_t j = 0; j < static_cast<int64_t>(n); j++) {
+                    if (ix[j] >= 0 && iy[j] >= 0) {
+                        dis[j] = fvec_inner_product<SL>(
+                                x + d * ix[j], y + d * iy[j], d);
+                    } else {
+                        dis[j] = -INFINITY;
+                    }
+                }
+            });
 }
 
 /* Find the nearest neighbors for nx queries in a set of ny vectors
@@ -1256,29 +1300,31 @@ void knn_inner_products_by_idx(
         ld_ids = ny;
     }
 
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nx > 100)
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            const float* x_ = x + i * d;
-            const int64_t* idsi = ids + i * ld_ids;
-            size_t j;
-            float* __restrict simi = res_vals + i * k;
-            int64_t* __restrict idxi = res_ids + i * k;
-            minheap_heapify(k, simi, idxi);
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    const float* x_ = x + i * d;
+                    const int64_t* idsi = ids + i * ld_ids;
+                    size_t j;
+                    float* __restrict simi = res_vals + i * k;
+                    int64_t* __restrict idxi = res_ids + i * k;
+                    minheap_heapify(k, simi, idxi);
 
-            for (j = 0; j < nsubset; j++) {
-                if (idsi[j] < 0 || static_cast<size_t>(idsi[j]) >= ny) {
-                    break;
-                }
-                float ip = fvec_inner_product<SL>(x_, y + d * idsi[j], d);
+                    for (j = 0; j < nsubset; j++) {
+                        if (idsi[j] < 0 || static_cast<size_t>(idsi[j]) >= ny) {
+                            break;
+                        }
+                        float ip =
+                                fvec_inner_product<SL>(x_, y + d * idsi[j], d);
 
-                if (ip > simi[0]) {
-                    minheap_replace_top(k, simi, idxi, ip, idsi[j]);
+                        if (ip > simi[0]) {
+                            minheap_replace_top(k, simi, idxi, ip, idsi[j]);
+                        }
+                    }
+                    minheap_reorder(k, simi, idxi);
                 }
-            }
-            minheap_reorder(k, simi, idxi);
-        }
-    });
+            });
 }
 
 void knn_L2sqr_by_idx(
@@ -1296,27 +1342,28 @@ void knn_L2sqr_by_idx(
     if (ld_ids < 0) {
         ld_ids = ny;
     }
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nx > 100)
-        for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
-            const float* x_ = x + i * d;
-            const int64_t* __restrict idsi = ids + i * ld_ids;
-            float* __restrict simi = res_vals + i * k;
-            int64_t* __restrict idxi = res_ids + i * k;
-            maxheap_heapify(k, simi, idxi);
-            for (size_t j = 0; j < nsubset; j++) {
-                if (idsi[j] < 0 || static_cast<size_t>(idsi[j]) >= ny) {
-                    break;
-                }
-                float disij = fvec_L2sqr<SL>(x_, y + d * idsi[j], d);
+                for (int64_t i = 0; i < static_cast<int64_t>(nx); i++) {
+                    const float* x_ = x + i * d;
+                    const int64_t* __restrict idsi = ids + i * ld_ids;
+                    float* __restrict simi = res_vals + i * k;
+                    int64_t* __restrict idxi = res_ids + i * k;
+                    maxheap_heapify(k, simi, idxi);
+                    for (size_t j = 0; j < nsubset; j++) {
+                        if (idsi[j] < 0 || static_cast<size_t>(idsi[j]) >= ny) {
+                            break;
+                        }
+                        float disij = fvec_L2sqr<SL>(x_, y + d * idsi[j], d);
 
-                if (disij < simi[0]) {
-                    maxheap_replace_top(k, simi, idxi, disij, idsi[j]);
+                        if (disij < simi[0]) {
+                            maxheap_replace_top(k, simi, idxi, disij, idsi[j]);
+                        }
+                    }
+                    maxheap_reorder(k, simi, idxi);
                 }
-            }
-            maxheap_reorder(k, simi, idxi);
-        }
-    });
+            });
 }
 
 void pairwise_L2sqr(
@@ -1345,27 +1392,25 @@ void pairwise_L2sqr(
     // store in beginning of distance matrix to avoid malloc
     float* b_norms = dis;
 
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_LOOPS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for if (nb > 1)
-        for (int64_t i = 0; i < nb; i++) {
-            b_norms[i] = fvec_norm_L2sqr<SL>(xb + i * ldb, d);
-        }
+                for (int64_t i = 0; i < nb; i++) {
+                    b_norms[i] = fvec_norm_L2sqr<SL>(xb + i * ldb, d);
+                }
 
 #pragma omp parallel for
-        for (int64_t i = 1; i < nq; i++) {
-            float q_norm = fvec_norm_L2sqr<SL>(xq + i * ldq, d);
-            for (int64_t j = 0; j < nb; j++) {
-                dis[i * ldd + j] = q_norm + b_norms[j];
-            }
-        }
+                for (int64_t i = 1; i < nq; i++) {
+                    float q_norm = fvec_norm_L2sqr<SL>(xq + i * ldq, d);
+                    fvec_add_scalar_dispatch(
+                            nb, b_norms, q_norm, dis + i * ldd);
+                }
 
-        {
-            float q_norm = fvec_norm_L2sqr<SL>(xq, d);
-            for (int64_t j = 0; j < nb; j++) {
-                dis[j] += q_norm;
-            }
-        }
-    });
+                {
+                    float q_norm = fvec_norm_L2sqr<SL>(xq, d);
+                    fvec_add_scalar_dispatch(nb, dis, q_norm, dis);
+                }
+            });
 
     {
         FINTEGER nbi = nb, nqi = nq, di = d, ldqi = ldq, ldbi = ldb, lddi = ldd;
@@ -1393,13 +1438,15 @@ void inner_product_to_L2sqr(
         const float* nr2,
         size_t n1,
         size_t n2) {
+    with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCE_POSTPROCESS>(
+            [&]<SIMDLevel SL>() {
 #pragma omp parallel for
-    for (int64_t j = 0; j < static_cast<int64_t>(n1); j++) {
-        float* disj = dis + j * n2;
-        for (size_t i = 0; i < n2; i++) {
-            disj[i] = nr1[j] + nr2[i] - 2 * disj[i];
-        }
-    }
+                for (int64_t j = 0; j < static_cast<int64_t>(n1); j++) {
+                    float* disj = dis + j * n2;
+                    detail::fvec_inner_product_to_L2sqr<SL>(
+                            n2, disj, nr2, nr1[j]);
+                }
+            });
 }
 
 } // namespace faiss

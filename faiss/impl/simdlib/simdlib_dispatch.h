@@ -36,6 +36,14 @@
 
 #include <faiss/impl/simdlib/simdlib_neon.h>
 
+#elif defined(COMPILE_SIMD_LOONGARCH_LASX) && defined(__loongarch_asx)
+
+#include <faiss/impl/simdlib/simdlib_lasx.h>
+
+#elif defined(COMPILE_SIMD_LOONGARCH_LSX) && defined(__loongarch_sx)
+
+#include <faiss/impl/simdlib/simdlib_lsx.h>
+
 #endif
 
 // No global bare-name aliases (simd16uint16, simd32uint8, etc.) — each file
