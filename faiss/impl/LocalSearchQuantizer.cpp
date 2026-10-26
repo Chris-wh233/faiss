@@ -602,7 +602,9 @@ void LocalSearchQuantizer::icm_encode_step(
     FAISS_THROW_IF_NOT(binaries);
 
     // Resolve SIMD level once, not per iteration of the n × n_iters × M loop.
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for schedule(FAISS_OMP_DYNAMIC)
         for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
             std::vector<float> objs(K);
@@ -641,17 +643,14 @@ void LocalSearchQuantizer::icm_encode_step(
                         }
 #endif
 
-                        for (size_t code = 0; code < K; code++) {
-                            int32_t code2 = codes[i * M + other_m];
-                            size_t binary_idx = other_m * M * K * K +
-                                    m * K * K + code2 * K + code;
-                            // binaries[m, other_m, code, code2].
-                            // It is symmetric over (m <-> other_m)
-                            //   and (code <-> code2).
-                            // So, replace the op with
-                            //   binaries[other_m, m, code2, code].
-                            objs[code] += binaries[binary_idx];
-                        }
+                        int32_t code2 = codes[i * M + other_m];
+                        size_t binary_idx =
+                                other_m * M * K * K + m * K * K + code2 * K;
+                        fvec_add<SL>(
+                                K,
+                                objs.data(),
+                                binaries + binary_idx,
+                                objs.data());
                     }
 
                     // find the optimal value of the m-th subcode
@@ -691,7 +690,9 @@ void LocalSearchQuantizer::perturb_codes(
 void LocalSearchQuantizer::compute_binary_terms(float* binaries) const {
     LSQTimerScope scope(&lsq_timer, "compute_binary_terms");
 
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for
         for (int64_t m12 = 0; m12 < static_cast<int64_t>(M * M); m12++) {
             size_t m1 = m12 / M;
@@ -769,27 +770,30 @@ float LocalSearchQuantizer::evaluate(
     std::vector<float> decoded_x(n * d, 0.0f);
     float obj = 0.0f;
 
-    with_simd_level([&]<SIMDLevel SL>() {
-        float local_obj = 0.0f;
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                float local_obj = 0.0f;
 #pragma omp parallel for reduction(+ : local_obj)
-        for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
-            const auto code = codes + i * M;
-            const auto decoded_i = decoded_x.data() + i * d;
-            for (size_t m = 0; m < M; m++) {
-                // c = codebooks[m, code[m]]
-                const auto c = codebooks.data() + m * K * d + code[m] * d;
-                fvec_add(d, decoded_i, c, decoded_i);
-            }
+                for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
+                    const auto code = codes + i * M;
+                    const auto decoded_i = decoded_x.data() + i * d;
+                    for (size_t m = 0; m < M; m++) {
+                        // c = codebooks[m, code[m]]
+                        const auto c =
+                                codebooks.data() + m * K * d + code[m] * d;
+                        fvec_add(d, decoded_i, c, decoded_i);
+                    }
 
-            float err = fvec_L2sqr<SL>(x + i * d, decoded_i, d);
-            local_obj += err;
+                    float err = fvec_L2sqr<SL>(x + i * d, decoded_i, d);
+                    local_obj += err;
 
-            if (objs) {
-                objs[i] = err;
-            }
-        }
-        obj = local_obj;
-    });
+                    if (objs) {
+                        objs[i] = err;
+                    }
+                }
+                obj = local_obj;
+            });
 
     obj = obj / n;
     return obj;

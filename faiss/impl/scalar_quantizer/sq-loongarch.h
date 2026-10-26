@@ -9,7 +9,9 @@
 #include <faiss/impl/scalar_quantizer/codecs.h>
 #include <faiss/impl/scalar_quantizer/quantizers.h>
 #include <faiss/impl/scalar_quantizer/scanners.h>
+#include <faiss/impl/scalar_quantizer/sq-loongarch-advanced.h>
 #include <faiss/impl/scalar_quantizer/sq-loongarch-ops.h>
+#include <faiss/impl/scalar_quantizer/sq-turboquant-dc.h>
 namespace faiss::scalar_quantizer {
 namespace detail {
 template <SIMDLevel SL, QuantizerType QT>
@@ -176,6 +178,27 @@ auto with_loongarch_quantizer(QuantizerType qt, Action action) {
             return action.template operator()<LoongArchQuantizer<
                     SL,
                     ScalarQuantizer::QT_8bit_direct_signed>>();
+        case ScalarQuantizer::QT_1bit_eden:
+        case ScalarQuantizer::QT_1bit_tqmse:
+            return action.template operator()<LoongArchLloydMax<SL, 1>>();
+        case ScalarQuantizer::QT_2bit_eden:
+        case ScalarQuantizer::QT_2bit_tqmse:
+            return action.template operator()<LoongArchLloydMax<SL, 2>>();
+        case ScalarQuantizer::QT_3bit_eden:
+        case ScalarQuantizer::QT_3bit_tqmse:
+            return action.template operator()<LoongArchLloydMax<SL, 3>>();
+        case ScalarQuantizer::QT_4bit_eden:
+        case ScalarQuantizer::QT_4bit_tqmse:
+            return action.template operator()<LoongArchLloydMax<SL, 4>>();
+        case ScalarQuantizer::QT_5bit_eden:
+            return action.template operator()<LoongArchLloydMax<SL, 5>>();
+        case ScalarQuantizer::QT_6bit_eden:
+            return action.template operator()<LoongArchLloydMax<SL, 6>>();
+        case ScalarQuantizer::QT_7bit_eden:
+            return action.template operator()<LoongArchLloydMax<SL, 7>>();
+        case ScalarQuantizer::QT_8bit_eden:
+        case ScalarQuantizer::QT_8bit_tqmse:
+            return action.template operator()<LoongArchLloydMax<SL, 8>>();
         default:
             return decltype(action.template operator()<LoongArchQuantizer<
                                     SL,
@@ -241,10 +264,138 @@ struct LoongArchSQDistanceComputer : SQDistanceComputer {
 } // namespace detail
 
 template <>
+struct TurboQuantQueryOps<THE_SIMD_LEVEL> {
+    using Ops = detail::LoongArchLloydOps<THE_SIMD_LEVEL>;
+    using Vec = typename Ops::Vec;
+    static float sum(const float* x, size_t d) {
+        Vec acc(0.f);
+        size_t j = 0;
+        for (; j + 8 <= d; j += 8)
+            acc = acc + Vec(x + j);
+        float s = horizontal_add(acc);
+        for (; j < d; ++j)
+            s += x[j];
+        return s;
+    }
+    static void projection(
+            float* x,
+            size_t d,
+            float scale,
+            float& sum,
+            float& l1) {
+        Vec acc(0.f), absacc(0.f);
+        size_t j = 0;
+        for (; j + 8 <= d; j += 8) {
+            Vec v = Vec(x + j) * Vec(scale);
+            v.storeu(x + j);
+            acc = acc + v;
+            absacc = absacc + Ops::abs(v);
+        }
+        sum = horizontal_add(acc);
+        l1 = horizontal_add(absacc);
+        for (; j < d; ++j) {
+            x[j] *= scale;
+            sum += x[j];
+            l1 += std::abs(x[j]);
+        }
+    }
+    static void quantize(
+            const float* x,
+            size_t d,
+            uint8_t qb,
+            uint8_t* out,
+            float& minimum,
+            float& delta) {
+        float hi;
+        rabitq::minmax_values<THE_SIMD_LEVEL>(x, d, minimum, hi);
+        float range = std::max(hi - minimum, 1e-30f),
+              maxval = float((1 << qb) - 1), scale = maxval / range;
+        delta = range / maxval;
+        size_t stride = (d + 7) / 8, j = 0;
+        using B = faiss::detail::LoongArchBits<THE_SIMD_LEVEL>;
+        for (; j + 8 <= d; j += 8) {
+            Vec v = Ops::round_unsigned(
+                    (Vec(x + j) - Vec(minimum)) * Vec(scale), int(maxval));
+            uint8_t packed[8] = {};
+            Ops::template pack<8>(v, packed);
+            auto bytes = B::load_partial(packed, 8);
+            for (int b = 0; b < qb; ++b)
+                out[b * stride + j / 8] = uint8_t(B::bit_plane(bytes, b));
+        }
+        for (; j < d; ++j) {
+            int v = std::max(
+                    0,
+                    std::min(
+                            int(maxval),
+                            int(std::round((x[j] - minimum) * scale))));
+            for (int b = 0; b < qb; ++b)
+                if (v & (1 << b))
+                    out[b * stride + j / 8] |= 1 << (j % 8);
+        }
+    }
+    template <typename Quantizer>
+    static float mse_dot(
+            const Quantizer& quant,
+            const float* query,
+            const uint8_t* code,
+            float scale) {
+        return quant.mse_dot(query, code, scale);
+    }
+    static void intersect(
+            const uint8_t* a,
+            const uint8_t* b,
+            uint8_t* out,
+            size_t n) {
+        using V = simd32uint8_tpl<THE_SIMD_LEVEL>;
+        size_t j = 0;
+        for (; j + 32 <= n; j += 32)
+            (V(a + j) & V(b + j)).storeu(out + j);
+        for (; j < n; ++j)
+            out[j] = a[j] & b[j];
+    }
+};
+template <>
+float turboq_masked_sum<THE_SIMD_LEVEL>(
+        const float* arr,
+        const uint8_t* bits,
+        size_t d) {
+    using Ops = detail::LoongArchLloydOps<THE_SIMD_LEVEL>;
+    using Vec = typename Ops::Vec;
+    Vec acc(0.f);
+    size_t j = 0;
+    for (; j + 8 <= d; j += 8)
+        acc = acc + Vec(arr + j) * Ops::plane(bits[j / 8]);
+    float sum = horizontal_add(acc);
+    for (; j < d; ++j)
+        if (bits[j / 8] & (1 << (j % 8)))
+            sum += arr[j];
+    return sum;
+}
+template <int Bits, MetricType metric>
+using LoongArchTurboDC = DCTurboQuantFull<
+        Bits,
+        std::conditional_t<
+                metric == METRIC_L2,
+                SimilarityL2<SIMDLevel::NONE>,
+                SimilarityIP<SIMDLevel::NONE>>,
+        THE_SIMD_LEVEL>;
+template <>
 ScalarQuantizer::SQuantizer* sq_select_quantizer<THE_SIMD_LEVEL>(
         QuantizerType qt,
         size_t d,
         const std::vector<float>& trained) {
+    switch (qt) {
+        case ScalarQuantizer::QT_2bit_tq:
+            return new QuantizerTurboQuantFull<2, THE_SIMD_LEVEL>(d, trained);
+        case ScalarQuantizer::QT_3bit_tq:
+            return new QuantizerTurboQuantFull<3, THE_SIMD_LEVEL>(d, trained);
+        case ScalarQuantizer::QT_4bit_tq:
+            return new QuantizerTurboQuantFull<4, THE_SIMD_LEVEL>(d, trained);
+        case ScalarQuantizer::QT_5bit_tq:
+            return new QuantizerTurboQuantFull<5, THE_SIMD_LEVEL>(d, trained);
+        default:
+            break;
+    }
     return detail::with_loongarch_quantizer<THE_SIMD_LEVEL>(
             qt, [&]<class Quantizer>() -> ScalarQuantizer::SQuantizer* {
                 return new Quantizer(d, trained);
@@ -256,6 +407,26 @@ SQDistanceComputer* sq_select_distance_computer<THE_SIMD_LEVEL>(
         QuantizerType qt,
         size_t d,
         const std::vector<float>& trained) {
+    switch (qt) {
+        case ScalarQuantizer::QT_2bit_tq:
+            if (metric == METRIC_L2)
+                return new LoongArchTurboDC<2, METRIC_L2>(d, trained);
+            return new LoongArchTurboDC<2, METRIC_INNER_PRODUCT>(d, trained);
+        case ScalarQuantizer::QT_3bit_tq:
+            if (metric == METRIC_L2)
+                return new LoongArchTurboDC<3, METRIC_L2>(d, trained);
+            return new LoongArchTurboDC<3, METRIC_INNER_PRODUCT>(d, trained);
+        case ScalarQuantizer::QT_4bit_tq:
+            if (metric == METRIC_L2)
+                return new LoongArchTurboDC<4, METRIC_L2>(d, trained);
+            return new LoongArchTurboDC<4, METRIC_INNER_PRODUCT>(d, trained);
+        case ScalarQuantizer::QT_5bit_tq:
+            if (metric == METRIC_L2)
+                return new LoongArchTurboDC<5, METRIC_L2>(d, trained);
+            return new LoongArchTurboDC<5, METRIC_INNER_PRODUCT>(d, trained);
+        default:
+            break;
+    }
     return detail::with_loongarch_quantizer<THE_SIMD_LEVEL>(
             qt, [&]<class Quantizer>() -> SQDistanceComputer* {
                 if (metric == METRIC_L2)
@@ -278,6 +449,62 @@ InvertedListScanner* sq_select_InvertedListScanner<THE_SIMD_LEVEL>(
         bool store_pairs,
         const IDSelector* sel,
         bool by_residual) {
+    switch (qt) {
+        case ScalarQuantizer::QT_2bit_tq:
+            if (metric == METRIC_L2)
+                return new IVFSQScannerL2<LoongArchTurboDC<2, METRIC_L2>>(
+                        int(d),
+                        trained,
+                        code_size,
+                        quantizer,
+                        store_pairs,
+                        sel,
+                        by_residual);
+            return new IVFSQScannerIP<
+                    LoongArchTurboDC<2, METRIC_INNER_PRODUCT>>(
+                    int(d), trained, code_size, store_pairs, sel, by_residual);
+        case ScalarQuantizer::QT_3bit_tq:
+            if (metric == METRIC_L2)
+                return new IVFSQScannerL2<LoongArchTurboDC<3, METRIC_L2>>(
+                        int(d),
+                        trained,
+                        code_size,
+                        quantizer,
+                        store_pairs,
+                        sel,
+                        by_residual);
+            return new IVFSQScannerIP<
+                    LoongArchTurboDC<3, METRIC_INNER_PRODUCT>>(
+                    int(d), trained, code_size, store_pairs, sel, by_residual);
+        case ScalarQuantizer::QT_4bit_tq:
+            if (metric == METRIC_L2)
+                return new IVFSQScannerL2<LoongArchTurboDC<4, METRIC_L2>>(
+                        int(d),
+                        trained,
+                        code_size,
+                        quantizer,
+                        store_pairs,
+                        sel,
+                        by_residual);
+            return new IVFSQScannerIP<
+                    LoongArchTurboDC<4, METRIC_INNER_PRODUCT>>(
+                    int(d), trained, code_size, store_pairs, sel, by_residual);
+        case ScalarQuantizer::QT_5bit_tq:
+            if (metric == METRIC_L2)
+                return new IVFSQScannerL2<LoongArchTurboDC<5, METRIC_L2>>(
+                        int(d),
+                        trained,
+                        code_size,
+                        quantizer,
+                        store_pairs,
+                        sel,
+                        by_residual);
+            return new IVFSQScannerIP<
+                    LoongArchTurboDC<5, METRIC_INNER_PRODUCT>>(
+                    int(d), trained, code_size, store_pairs, sel, by_residual);
+        default:
+            break;
+    }
     return detail::with_loongarch_quantizer<
             THE_SIMD_LEVEL>(qt, [&]<class Quantizer>() -> InvertedListScanner* {
         if (metric == METRIC_L2)

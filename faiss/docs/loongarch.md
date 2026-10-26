@@ -27,9 +27,21 @@ distance tables, packed-code scans and SDC; PQ4 FastScan; and RaBitQ bitwise
 operations, multi-bit inner products, query/LUT quantization and FastScan.
 FP16 encoding follows the rounding used by Faiss's scalar codec.
 
-Advanced scalar quantizers, selection and floating-point graph helpers, and
-standalone decoding retain their existing implementations. Dispatch masks
-enable LoongArch only for implemented kernel families.
+Additional kernels cover EDEN/TQMSE/TurboQuant, quantizer preprocessing,
+partitioning and approximate top-k, fused distances, HNSW heap selection,
+and SuperKMeans block distances. Clustering, additive/residual/local-search
+quantization, lattice search and bulk decoding use the corresponding SIMD
+operations. Dispatch masks enable implemented kernel families.
+
+Standalone PQ and two-level decoders, including MinMax/MinMaxFP16 wrappers,
+are available through the installed `faiss/cppcontrib/SaDecodeKernels.h`.
+These headers select their implementation at compile time: consumers use
+`-mlsx -mno-lasx` or `-mlasx` on hardware supporting that extension.
+
+EDEN and PQ retain scalar indexed table loads because LSX/LASX have no gather
+instruction. Unpacking and arithmetic use SIMD. Lookup-heavy paths and wider
+vectors need not improve every workload; compare identical indexes and data
+with fixed thread counts when measuring performance.
 
 SIMD reduction order and FMA can change floating-point rounding. BLAS search
 clamps negative roundoff; the public inner-product-to-L2 conversion retains

@@ -13,6 +13,17 @@
 namespace faiss {
 namespace cppcontrib {
 
+namespace detail {
+template <typename Decoder>
+struct MinMaxOps {
+    static void affine(float* x, intptr_t d, float scale, float bias) {
+        for (intptr_t i = 0; i < d; i++) {
+            x[i] = x[i] * scale + bias;
+        }
+    }
+};
+} // namespace detail
+
 template <typename SubIndexT>
 struct IndexMinMaxDecoder {
     static constexpr intptr_t dim = SubIndexT::dim;
@@ -34,9 +45,8 @@ struct IndexMinMaxDecoder {
                 pqFineCentroids,
                 code + 2 * sizeof(float),
                 outputStore);
-        for (intptr_t i = 0; i < SubIndexT::dim; i++) {
-            outputStore[i] = outputStore[i] * scaler + minv;
-        }
+        detail::MinMaxOps<SubIndexT>::affine(
+                outputStore, SubIndexT::dim, scaler, minv);
     }
 
     // Process 1 sample.
@@ -52,9 +62,8 @@ struct IndexMinMaxDecoder {
 
         SubIndexT::store(
                 pqFineCentroids, code + 2 * sizeof(float), outputStore);
-        for (intptr_t i = 0; i < SubIndexT::dim; i++) {
-            outputStore[i] = outputStore[i] * scaler + minv;
-        }
+        detail::MinMaxOps<SubIndexT>::affine(
+                outputStore, SubIndexT::dim, scaler, minv);
     }
 
     // Process 1 sample.

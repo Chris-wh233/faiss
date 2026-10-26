@@ -222,9 +222,7 @@ void IndexIVFPQ::sa_decode(idx_t n, const uint8_t* codes, float* x) const {
             pq.decode(code + coarse_size, xi);
             if (by_residual) {
                 quantizer->reconstruct(list_no, residual.data());
-                for (int j = 0; j < d; j++) {
-                    xi[j] += residual[j];
-                }
+                fvec_add_dispatch(d, xi, residual.data(), xi);
             }
         }
     }

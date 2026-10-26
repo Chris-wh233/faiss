@@ -94,7 +94,9 @@ void beam_search_encode_step(
     InterruptCallback::check();
 
     // Resolve SIMD level once, not per iteration of the n-parallel loop.
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 100)
         for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
             const int32_t* codes_i = codes + i * m * beam_size;
@@ -367,7 +369,9 @@ void beam_search_encode_step_tab(
     FAISS_THROW_IF_NOT(ldc >= K);
 
     // Resolve SIMD level once, not per iteration of the n-parallel loop.
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel for if (n > 100) schedule(FAISS_OMP_DYNAMIC)
         for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
             std::vector<float> cent_distances(beam_size * K);
@@ -713,7 +717,9 @@ void compute_codes_add_centroids_mp_lut0(
         pool.norms.resize(n);
         // recover the norms of reconstruction as
         // || original_vector - residual ||^2
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_BASE |
+                AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
             for (size_t i = 0; i < n; i++) {
                 pool.norms[i] = fvec_L2sqr<SL>(
                         x + i * rq.d,

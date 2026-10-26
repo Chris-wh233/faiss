@@ -80,7 +80,9 @@ auto with_rows_simd_level(Action&& action) {
     if constexpr (Rows::has_fixed_simd_level) {
         return action.template operator()<Rows::simd_level>();
     } else {
-        return with_simd_level(std::forward<Action>(action));
+        return with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+                std::forward<Action>(action));
     }
 }
 

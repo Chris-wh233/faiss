@@ -85,21 +85,33 @@ set(FAISS_SIMD_RVV_SRC
 )
 set(FAISS_SIMD_LSX_SRC
   impl/fast_scan/impl-lsx.cpp
+  impl/hnsw/lsx.cpp
   impl/pq_code_distance/lsx.cpp
   impl/scalar_quantizer/sq-lsx.cpp
+  impl/approx_topk/lsx.cpp
   impl/binary_hamming/lsx.cpp
   utils/simd_impl/distances_lsx.cpp
   utils/hamming_distance/hamming_lsx.cpp
+  utils/simd_impl/partitioning_lsx.cpp
+  utils/distances_fused/simdlib_based_lsx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lsx.cpp
   utils/simd_impl/rabitq_lsx.cpp
+  utils/simd_impl/super_kmeans_kernels_lsx.cpp
 )
 set(FAISS_SIMD_LASX_SRC
   impl/fast_scan/impl-lasx.cpp
+  impl/hnsw/lasx.cpp
   impl/pq_code_distance/lasx.cpp
   impl/scalar_quantizer/sq-lasx.cpp
+  impl/approx_topk/lasx.cpp
   impl/binary_hamming/lasx.cpp
   utils/simd_impl/distances_lasx.cpp
   utils/hamming_distance/hamming_lasx.cpp
+  utils/simd_impl/partitioning_lasx.cpp
+  utils/distances_fused/simdlib_based_lasx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lasx.cpp
   utils/simd_impl/rabitq_lasx.cpp
+  utils/simd_impl/super_kmeans_kernels_lasx.cpp
 )
 
 # Optional LoongArch extensions are compiled in separate translation units.
@@ -345,6 +357,20 @@ set(FAISS_HEADERS
   index_factory.h
   factory_tools.h
   index_io.h
+  cppcontrib/SaDecodeKernels.h
+  cppcontrib/detail/CoarseBitType.h
+  cppcontrib/detail/UintReader.h
+  cppcontrib/sa_decode/Level2-avx2-inl.h
+  cppcontrib/sa_decode/Level2-inl.h
+  cppcontrib/sa_decode/Level2-loongarch-inl.h
+  cppcontrib/sa_decode/Level2-neon-inl.h
+  cppcontrib/sa_decode/MinMax-inl.h
+  cppcontrib/sa_decode/MinMaxFP16-inl.h
+  cppcontrib/sa_decode/PQ-avx2-inl.h
+  cppcontrib/sa_decode/PQ-inl.h
+  cppcontrib/sa_decode/PQ-loongarch-inl.h
+  cppcontrib/sa_decode/PQ-neon-inl.h
+  cppcontrib/sa_decode/loongarch-inl.h
   impl/AdSampling.h
   impl/AdditiveQuantizer.h
   impl/AuxIndexStructures.h
@@ -400,6 +426,9 @@ set(FAISS_HEADERS
   impl/scalar_quantizer/sq-dispatch.h
   impl/scalar_quantizer/sq-loongarch.h
   impl/scalar_quantizer/sq-loongarch-ops.h
+  impl/scalar_quantizer/sq-loongarch-advanced.h
+  impl/scalar_quantizer/sq-loongarch-lloyd-ops.h
+  impl/scalar_quantizer/sq-turboquant-dc.h
   impl/scalar_quantizer/training.h
   impl/ThreadedIndex-inl.h
   impl/ThreadedIndex.h
@@ -492,6 +521,7 @@ set(FAISS_HEADERS
   utils/simd_impl/distances_loongarch-inl.h
   utils/simd_impl/extra_distances_loongarch-inl.h
   utils/simd_impl/distances_kernels.h
+  utils/simd_impl/quantizer_preprocessing.h
   utils/simd_impl/distances_simdlib256.h
   utils/simd_impl/pq_tables_simdlib256.h
   utils/simd_impl/loongarch_bits.h

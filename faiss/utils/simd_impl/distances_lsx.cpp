@@ -162,6 +162,46 @@ struct FloatVec {
 #define THE_SIMD_LEVEL SIMDLevel::LOONGARCH_LSX
 #include <faiss/utils/simd_impl/distances_loongarch-inl.h>
 #include <faiss/utils/simd_impl/extra_distances_loongarch-inl.h>
+
+namespace faiss::quantizer_preprocessing {
+template <>
+void eden_code_stats<SIMDLevel::LOONGARCH_LSX>(
+        size_t d,
+        const float* x,
+        const float* centroid,
+        const float* decoded,
+        double& norm,
+        double& ip) {
+    __m128d n0 = (__m128d)__lsx_vreplgr2vr_w(0), n1 = n0, p0 = n0, p1 = n0;
+    size_t j = 0;
+    for (; j + 4 <= d; j += 4) {
+        const FloatVec q(decoded + j);
+        const FloatVec c = centroid ? FloatVec(centroid + j) : FloatVec(0.0f);
+        const FloatVec residual = FloatVec(x + j) - c;
+        const auto q0 = __lsx_vfcvtl_d_s(q.data), q1 = __lsx_vfcvth_d_s(q.data);
+        const auto r0 = __lsx_vfcvtl_d_s(residual.data),
+                   r1 = __lsx_vfcvth_d_s(residual.data);
+        n0 = __lsx_vfmadd_d(q0, q0, n0);
+        n1 = __lsx_vfmadd_d(q1, q1, n1);
+        p0 = __lsx_vfmadd_d(q0, r0, p0);
+        p1 = __lsx_vfmadd_d(q1, r1, p1);
+    }
+    double norms[2], ips[2];
+    __lsx_vst((__m128i)__lsx_vfadd_d(n0, n1), norms, 0);
+    __lsx_vst((__m128i)__lsx_vfadd_d(p0, p1), ips, 0);
+    norm = ip = 0.0;
+    for (size_t k = 0; k < 2; ++k) {
+        norm += norms[k];
+        ip += ips[k];
+    }
+    for (; j < d; ++j) {
+        const double q = decoded[j];
+        const float residual = x[j] - (centroid ? centroid[j] : 0.0f);
+        norm += q * q;
+        ip += q * residual;
+    }
+}
+} // namespace faiss::quantizer_preprocessing
 #include <faiss/utils/simd_impl/IVFFlatScanner-inl.h>
 #undef THE_SIMD_LEVEL
 #endif // COMPILE_SIMD_LOONGARCH_LSX

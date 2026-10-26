@@ -305,20 +305,22 @@ void EnumeratedVectors::find_nn(
     }
 
     std::vector<float> c(dim);
-    with_simd_level([&]<SIMDLevel SL>() {
-        for (size_t i = 0; i < nc; i++) {
-            uint64_t code = codes[nc];
-            decode(code, c.data());
-            for (size_t j = 0; j < nq; j++) {
-                const float* x = xq + j * dim;
-                float dis = fvec_inner_product<SL>(x, c.data(), dim);
-                if (dis > distances[j]) {
-                    distances[j] = dis;
-                    labels[j] = i;
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                for (size_t i = 0; i < nc; i++) {
+                    uint64_t code = codes[nc];
+                    decode(code, c.data());
+                    for (size_t j = 0; j < nq; j++) {
+                        const float* x = xq + j * dim;
+                        float dis = fvec_inner_product<SL>(x, c.data(), dim);
+                        if (dis > distances[j]) {
+                            distances[j] = dis;
+                            labels[j] = i;
+                        }
+                    }
                 }
-            }
-        }
-    });
+            });
 }
 
 /**********************************************************
@@ -366,15 +368,18 @@ float ZnSphereSearch::search(
     // find best
     int ibest = -1;
     float dpbest = -100;
-    with_simd_level([&]<SIMDLevel SL>() {
-        for (int i = 0; i < natom; i++) {
-            float dp = fvec_inner_product<SL>(voc.data() + i * dim, xperm, dim);
-            if (dp > dpbest) {
-                dpbest = dp;
-                ibest = i;
-            }
-        }
-    });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                for (int i = 0; i < natom; i++) {
+                    float dp = fvec_inner_product<SL>(
+                            voc.data() + i * dim, xperm, dim);
+                    if (dp > dpbest) {
+                        dpbest = dp;
+                        ibest = i;
+                    }
+                }
+            });
     // revert sort
     const float* cin = voc.data() + ibest * dim;
     for (int i = 0; i < dim; i++) {

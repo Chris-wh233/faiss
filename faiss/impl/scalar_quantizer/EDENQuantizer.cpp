@@ -6,10 +6,11 @@
  */
 
 #include <faiss/impl/EDENQuantizer.h>
+#include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/quantizer_preprocessing.h>
 
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/simd_dispatch.h>
-#include <faiss/utils/distances.h>
 #include <faiss/utils/hamming.h>
 #include <algorithm>
 #include <cmath>
@@ -643,6 +644,54 @@ EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
 }
 #endif
 
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+void compute_code_dot_lut_batch_8_lsx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LSX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lsx);
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+void compute_code_dot_lut_batch_8_lasx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LASX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lasx);
+}
+#endif
 } // namespace eden_distance
 
 namespace eden_utils {
@@ -750,6 +799,21 @@ void compute_codes(
     const size_t packed_size = sq.code_size;
     const size_t full_code_size = code_size(d, nb_bits);
     const float sqrt_d = std::sqrt(static_cast<float>(d));
+    const auto normalize = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::eden_normalize<SL>;
+            });
+    const auto code_stats = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::eden_code_stats<SL>;
+            });
+    const auto residual_norm = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::eden_residual_norm<SL>;
+            });
 
 #pragma omp parallel if (n > 1000)
     {
@@ -764,12 +828,7 @@ void compute_codes(
             uint8_t* code = codes + i * full_code_size;
             memset(code, 0, full_code_size);
 
-            float norm_sqr = 0.0f;
-            for (size_t j = 0; j < d; j++) {
-                const float c = centroid ? centroid[j] : 0.0f;
-                const float r = xi[j] - c;
-                norm_sqr += r * r;
-            }
+            const float norm_sqr = residual_norm(d, xi, centroid);
 
             EDENCodeFactors* factors =
                     reinterpret_cast<EDENCodeFactors*>(code + packed_size);
@@ -781,23 +840,20 @@ void compute_codes(
 
             const float norm = std::sqrt(norm_sqr);
             const float inv_norm = 1.0f / norm;
-            for (size_t j = 0; j < d; j++) {
-                const float c = centroid ? centroid[j] : 0.0f;
-                normalized[j] = (xi[j] - c) * sqrt_d * inv_norm;
-            }
+            normalize(d, xi, centroid, sqrt_d, inv_norm, normalized.data());
 
             squant->encode_vector(normalized.data(), code);
             squant->decode_vector(code, decoded.data());
 
             double code_norm_sqr = 0.0;
             double code_residual_ip = 0.0;
-            for (size_t j = 0; j < d; j++) {
-                const float c = centroid ? centroid[j] : 0.0f;
-                const float r = xi[j] - c;
-                const float q = decoded[j];
-                code_norm_sqr += double(q) * q;
-                code_residual_ip += double(q) * r;
-            }
+            code_stats(
+                    d,
+                    xi,
+                    centroid,
+                    decoded.data(),
+                    code_norm_sqr,
+                    code_residual_ip);
 
             float scale = 0.0f;
             float l2_norm_term = 0.0f;
@@ -837,6 +893,11 @@ void decode(
     const size_t d = sq.d;
     const size_t packed_size = sq.code_size;
     const size_t full_code_size = code_size(d, sq.bits);
+    const auto reconstruct = with_selected_simd_levels<
+            (1 << int(SIMDLevel::NONE)) | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            []<SIMDLevel SL>() {
+                return quantizer_preprocessing::eden_reconstruct<SL>;
+            });
 
 #pragma omp parallel if (n > 1000)
     {
@@ -853,10 +914,7 @@ void decode(
             float* xi = x + i * d;
 
             squant->decode_vector(code, decoded.data());
-            for (size_t j = 0; j < d; j++) {
-                const float c = centroid ? centroid[j] : 0.0f;
-                xi[j] = c + factors->scale * decoded[j];
-            }
+            reconstruct(d, decoded.data(), centroid, factors->scale, xi);
         }
     }
 }
@@ -875,7 +933,8 @@ EDENFlatCodesDistanceComputer* get_distance_computer(
     const size_t centroid_count = size_t{1} << sq.bits;
     FAISS_THROW_IF_NOT(sq.trained.size() >= centroid_count);
     const float* scalar_centroids = sq.trained.data();
-    return with_simd_level(
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> EDENFlatCodesDistanceComputer* {
                 return eden_distance::make_distance_computer_for_level<SL>(
                         metric_type, sq.d, sq.bits, scalar_centroids, centroid);

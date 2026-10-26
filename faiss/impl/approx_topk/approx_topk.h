@@ -153,6 +153,46 @@ struct HeapWithBucketsCMaxFloat {
             int32_t* const __restrict bh_ids);
 };
 
+// Instantiate each LoongArch level in its own ISA translation unit.
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+extern template struct HeapWithBucketsCMaxFloat<8, 3, SIMDLevel::LOONGARCH_LSX>;
+extern template struct HeapWithBucketsCMaxFloat<8, 2, SIMDLevel::LOONGARCH_LSX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        16,
+        2,
+        SIMDLevel::LOONGARCH_LSX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        16,
+        1,
+        SIMDLevel::LOONGARCH_LSX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        32,
+        2,
+        SIMDLevel::LOONGARCH_LSX>;
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+extern template struct HeapWithBucketsCMaxFloat<
+        8,
+        3,
+        SIMDLevel::LOONGARCH_LASX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        8,
+        2,
+        SIMDLevel::LOONGARCH_LASX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        16,
+        2,
+        SIMDLevel::LOONGARCH_LASX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        16,
+        1,
+        SIMDLevel::LOONGARCH_LASX>;
+extern template struct HeapWithBucketsCMaxFloat<
+        32,
+        2,
+        SIMDLevel::LOONGARCH_LASX>;
+#endif
+
 // NONE specialization: delegates to the scalar generic implementation.
 template <uint32_t NBUCKETS, uint32_t N>
 struct HeapWithBucketsCMaxFloat<NBUCKETS, N, SIMDLevel::NONE> {
@@ -205,7 +245,9 @@ struct HeapWithBuckets<CMax<float, int>, NBUCKETS, N> {
             const uint32_t k,
             float* const __restrict bh_val,
             int32_t* const __restrict bh_ids) {
-        with_simd_level_256bit([&]<SIMDLevel SL>() {
+        with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+                AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
             HeapWithBucketsCMaxFloat<NBUCKETS, N, SL>::bs_addn(
                     beam_size, n_per_beam, distances, k, bh_val, bh_ids);
         });
@@ -267,7 +309,9 @@ inline void approx_topk_by_mode(
         uint32_t k,
         float* bh_val,
         int32_t* bh_ids) {
-    with_simd_level_256bit([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_AVX2_NEON |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
         approx_topk_by_mode<SL>(
                 mode, beam_size, n_per_beam, distances, k, bh_val, bh_ids);
     });

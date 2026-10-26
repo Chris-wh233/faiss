@@ -616,7 +616,9 @@ void ivf_residual_add_from_flat_codes(
     const ResidualQuantizer& rq = index->rq;
 
     // populate inverted lists
-    with_simd_level([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>([&]<SIMDLevel SL>() {
 #pragma omp parallel
         {
             std::vector<uint8_t> tmp_code(index->rq.code_size);
