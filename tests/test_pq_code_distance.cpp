@@ -15,6 +15,7 @@
 #include <iostream>
 #include <random>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <faiss/impl/FaissAssert.h>
@@ -267,4 +268,41 @@ TEST(TestCodeDistance, SUBQ9_NBITS8) {
 
 TEST(TestCodeDistance, SUBQ15_NBITS8) {
     test(256, 15, 8, NELEMENTS);
+}
+
+TEST(TestCodeDistance, PackedSearchAcrossByteBoundaries) {
+    constexpr size_t M = 3, nbits = 19, ncodes = 9;
+    faiss::ProductQuantizer pq(M, M, nbits);
+    for (size_t m = 0; m < M; ++m) {
+        for (size_t c = 0; c < pq.ksub; ++c) {
+            pq.centroids[m * pq.ksub + c] = float(c) / pq.ksub;
+        }
+    }
+
+    const float query[M] = {0.1f, 0.3f, 0.7f};
+    std::vector<uint8_t> codes(ncodes * pq.code_size, 0);
+    std::vector<std::pair<float, int64_t>> expected;
+    for (size_t j = 0; j < ncodes; ++j) {
+        faiss::PQEncoderGeneric encoder(codes.data() + j * pq.code_size, nbits);
+        float distance = 0;
+        for (size_t m = 0; m < M; ++m) {
+            // The third field spans four bytes, with its high bit set.
+            const size_t c = pq.ksub - 2000 + j * 97 + m * 131;
+            encoder.encode(c);
+            const float delta = query[m] - pq.centroids[m * pq.ksub + c];
+            distance += delta * delta;
+        }
+        expected.emplace_back(distance, j);
+    }
+    std::sort(expected.begin(), expected.end());
+
+    std::vector<float> distances(ncodes);
+    std::vector<int64_t> labels(ncodes);
+    faiss::float_maxheap_array_t result{
+            1, ncodes, labels.data(), distances.data()};
+    pq.search(query, 1, codes.data(), ncodes, &result);
+    for (size_t j = 0; j < ncodes; ++j) {
+        EXPECT_EQ(labels[j], expected[j].second);
+        EXPECT_NEAR(distances[j], expected[j].first, 1e-5f);
+    }
 }

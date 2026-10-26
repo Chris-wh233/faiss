@@ -21,8 +21,14 @@ negative-distance clamp and top-1 reduction around BLAS calls, including
 FP16 query tiles and database-parallel search. FP16 query conversion uses
 the existing common implementation.
 
-Binary distance and quantizer-specific kernels, selection and graph helpers,
-and standalone decoding retain their existing implementations. Dispatch masks
+Native kernels also cover Hamming and binary scanners; SQ4/SQ6/SQ8,
+uniform and direct SQ variants, FP16/BF16 codecs and IVF scanners; PQ/IVFPQ
+distance tables, packed-code scans and SDC; PQ4 FastScan; and RaBitQ bitwise
+operations, multi-bit inner products, query/LUT quantization and FastScan.
+FP16 encoding follows the rounding used by Faiss's scalar codec.
+
+Advanced scalar quantizers, selection and floating-point graph helpers, and
+standalone decoding retain their existing implementations. Dispatch masks
 enable LoongArch only for implemented kernel families.
 
 SIMD reduction order and FMA can change floating-point rounding. BLAS search

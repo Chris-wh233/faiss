@@ -83,8 +83,24 @@ set(FAISS_SIMD_RVV_SRC
   utils/hamming_distance/hamming_rvv.cpp
   utils/simd_impl/rabitq_rvv.cpp
 )
-set(FAISS_SIMD_LSX_SRC utils/simd_impl/distances_lsx.cpp)
-set(FAISS_SIMD_LASX_SRC utils/simd_impl/distances_lasx.cpp)
+set(FAISS_SIMD_LSX_SRC
+  impl/fast_scan/impl-lsx.cpp
+  impl/pq_code_distance/lsx.cpp
+  impl/scalar_quantizer/sq-lsx.cpp
+  impl/binary_hamming/lsx.cpp
+  utils/simd_impl/distances_lsx.cpp
+  utils/hamming_distance/hamming_lsx.cpp
+  utils/simd_impl/rabitq_lsx.cpp
+)
+set(FAISS_SIMD_LASX_SRC
+  impl/fast_scan/impl-lasx.cpp
+  impl/pq_code_distance/lasx.cpp
+  impl/scalar_quantizer/sq-lasx.cpp
+  impl/binary_hamming/lasx.cpp
+  utils/simd_impl/distances_lasx.cpp
+  utils/hamming_distance/hamming_lasx.cpp
+  utils/simd_impl/rabitq_lasx.cpp
+)
 
 # Optional LoongArch extensions are compiled in separate translation units.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
@@ -382,6 +398,8 @@ set(FAISS_HEADERS
   impl/scalar_quantizer/sq8_rvv_kernel.h
   utils/simd_impl/distances_rvv_kernel.h
   impl/scalar_quantizer/sq-dispatch.h
+  impl/scalar_quantizer/sq-loongarch.h
+  impl/scalar_quantizer/sq-loongarch-ops.h
   impl/scalar_quantizer/training.h
   impl/ThreadedIndex-inl.h
   impl/ThreadedIndex.h
@@ -410,6 +428,7 @@ set(FAISS_HEADERS
   impl/pq_code_distance/pq_code_distance-avx2.h
   impl/pq_code_distance/pq_code_distance-avx512.h
   impl/pq_code_distance/pq_code_distance-generic.h
+  impl/pq_code_distance/pq_code_distance-loongarch.h
   impl/pq_code_distance/IVFPQ_QueryTables.h
   impl/pq_code_distance/IVFPQScanner_impl.h
   impl/pq_code_distance/PQDistanceComputer_impl.h
@@ -468,11 +487,16 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-generic.h
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
+  utils/hamming_distance/hamming_computer-loongarch.h
   utils/simd_impl/distances_autovec-inl.h
   utils/simd_impl/distances_loongarch-inl.h
   utils/simd_impl/extra_distances_loongarch-inl.h
   utils/simd_impl/distances_kernels.h
   utils/simd_impl/distances_simdlib256.h
+  utils/simd_impl/pq_tables_simdlib256.h
+  utils/simd_impl/loongarch_bits.h
+  utils/simd_impl/rabitq_loongarch-inl.h
+  utils/simd_impl/rabitq_quantize_loongarch-inl.h
   utils/hamming_distance/hamming_impl.h
   utils/simd_impl/exhaustive_L2sqr_blas_cmax.h
   utils/simd_impl/fp16_kernels.h

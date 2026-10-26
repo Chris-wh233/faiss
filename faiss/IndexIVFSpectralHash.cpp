@@ -222,7 +222,7 @@ InvertedListScanner* IndexIVFSpectralHash::get_InvertedListScanner(
         const IDSelector* sel,
         const IVFSearchParameters*) const {
     FAISS_THROW_IF_MSG(sel, "id selector not supported for this index");
-    return with_simd_level([&]<SIMDLevel SL>() {
+    return with_hamming_simd_level([&]<SIMDLevel SL>() {
         return make_spectral_hash_scanner_fixSL<SL>(
                 code_size, this, store_pairs);
     });

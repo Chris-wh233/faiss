@@ -95,7 +95,7 @@ void IndexBinaryHash::range_search(
             RangeQueryResult& qres = pres.new_result(i);
             const uint8_t* q = x + i * code_size;
 
-            with_simd_level([&]<SIMDLevel SL>() {
+            with_hamming_simd_level([&]<SIMDLevel SL>() {
                 binary_hash_range_search_fixSL<SL>(
                         *this, q, radius, qres, n0, nlist, ndis);
             });
@@ -129,7 +129,7 @@ void IndexBinaryHash::search(
         heap_heapify<HeapForL2>(k, simi, idxi);
         const uint8_t* q = x + i * code_size;
 
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_hamming_simd_level([&]<SIMDLevel SL>() {
             binary_hash_knn_search_fixSL<SL>(
                     *this, q, k, simi, idxi, n0, nlist, ndis);
         });
@@ -226,7 +226,7 @@ void IndexBinaryMultiHash::range_search(
             RangeQueryResult& qres = pres.new_result(i);
             const uint8_t* q = x + i * code_size;
 
-            with_simd_level([&]<SIMDLevel SL>() {
+            with_hamming_simd_level([&]<SIMDLevel SL>() {
                 binary_multihash_range_search_fixSL<SL>(
                         *this, q, radius, qres, n0, nlist, ndis);
             });
@@ -260,7 +260,7 @@ void IndexBinaryMultiHash::search(
         heap_heapify<HeapForL2>(k, simi, idxi);
         const uint8_t* q = x + i * code_size;
 
-        with_simd_level([&]<SIMDLevel SL>() {
+        with_hamming_simd_level([&]<SIMDLevel SL>() {
             binary_multihash_knn_search_fixSL<SL>(
                     *this, q, k, simi, idxi, n0, nlist, ndis);
         });
