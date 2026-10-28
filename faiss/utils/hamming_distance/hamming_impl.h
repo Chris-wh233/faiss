@@ -102,7 +102,8 @@ void hammings_knn_hc_impl(
                 CMax<hamdis_t, int64_t>,                                     \
                 NB,                                                          \
                 BD,                                                          \
-                HammingComputer>::                                           \
+                HammingComputer,                                             \
+                THE_SIMD_LEVEL>::                                            \
                 addn(j1 - j0, hc, bs2_, k, bh_val_, bh_ids_, sel);           \
         break;
 
@@ -484,6 +485,246 @@ void hamming_range_search_fixSL<THE_SIMD_LEVEL>(
             });
 }
 
+template <SIMDLevel SL>
+struct HammingKernels {
+    static void hammings_ragged(
+            const uint8_t* a,
+            const uint8_t* b,
+            size_t na,
+            size_t nb,
+            size_t ncodes,
+            hamdis_t* dis) {
+        hammings_ragged_dispatch(a, b, na, nb, ncodes, dis);
+    }
+    static void hammings(
+            const uint8_t* a,
+            const uint8_t* b,
+            size_t na,
+            size_t nb,
+            size_t ncodes,
+            hamdis_t* dis) {
+        FAISS_THROW_IF_NOT(ncodes % 8 == 0);
+        switch (ncodes) {
+            case 8:
+                hammings_impl<64>(C64(a), C64(b), na, nb, dis);
+                return;
+            case 16:
+                hammings_impl<128>(C64(a), C64(b), na, nb, dis);
+                return;
+            case 32:
+                hammings_impl<256>(C64(a), C64(b), na, nb, dis);
+                return;
+            case 64:
+                hammings_impl<512>(C64(a), C64(b), na, nb, dis);
+                return;
+            default:
+                hammings_impl_runtime(C64(a), C64(b), na, nb, ncodes * 8, dis);
+                return;
+        }
+    }
+    static void hamming_count_thres(
+            const uint8_t* bs1,
+            const uint8_t* bs2,
+            size_t n1,
+            size_t n2,
+            hamdis_t ht,
+            size_t ncodes,
+            size_t* nptr) {
+        switch (ncodes) {
+            case 8:
+                hamming_count_thres_impl<64>(
+                        C64(bs1), C64(bs2), n1, n2, ht, nptr);
+                return;
+            case 16:
+                hamming_count_thres_impl<128>(
+                        C64(bs1), C64(bs2), n1, n2, ht, nptr);
+                return;
+            case 32:
+                hamming_count_thres_impl<256>(
+                        C64(bs1), C64(bs2), n1, n2, ht, nptr);
+                return;
+            case 64:
+                hamming_count_thres_impl<512>(
+                        C64(bs1), C64(bs2), n1, n2, ht, nptr);
+                return;
+            default:
+                FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
+        }
+    }
+    static void crosshamming_count_thres(
+            const uint8_t* dbs,
+            size_t n,
+            hamdis_t ht,
+            size_t ncodes,
+            size_t* nptr) {
+        switch (ncodes) {
+            case 8:
+                crosshamming_count_thres_impl<64>(C64(dbs), n, ht, nptr);
+                return;
+            case 16:
+                crosshamming_count_thres_impl<128>(C64(dbs), n, ht, nptr);
+                return;
+            case 32:
+                crosshamming_count_thres_impl<256>(C64(dbs), n, ht, nptr);
+                return;
+            case 64:
+                crosshamming_count_thres_impl<512>(C64(dbs), n, ht, nptr);
+                return;
+            default:
+                FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
+        }
+    }
+    static size_t match_hamming_thres(
+            const uint8_t* bs1,
+            const uint8_t* bs2,
+            size_t n1,
+            size_t n2,
+            hamdis_t ht,
+            size_t ncodes,
+            int64_t* idx,
+            hamdis_t* dis) {
+        switch (ncodes) {
+            case 8:
+                return match_hamming_thres_impl<64>(
+                        C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
+            case 16:
+                return match_hamming_thres_impl<128>(
+                        C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
+            case 32:
+                return match_hamming_thres_impl<256>(
+                        C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
+            case 64:
+                return match_hamming_thres_impl<512>(
+                        C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
+            default:
+                FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
+                return 0;
+        }
+    }
+};
+
+namespace detail {
+template <SIMDLevel SL>
+struct LoongArchHammingKernels {
+    static void hammings_ragged(
+            const uint8_t* a,
+            const uint8_t* b,
+            size_t na,
+            size_t nb,
+            size_t ncodes,
+            hamdis_t* dis) {
+        with_HammingComputer<SL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < na; ++i) {
+                HC hc(a + i * ncodes, ncodes);
+                for (size_t j = 0; j < nb; ++j)
+                    dis[i * nb + j] = hc.hamming(b + j * ncodes);
+            }
+        });
+        return;
+    }
+    static void hammings(
+            const uint8_t* a,
+            const uint8_t* b,
+            size_t na,
+            size_t nb,
+            size_t ncodes,
+            hamdis_t* dis) {
+        FAISS_THROW_IF_NOT(ncodes % 8 == 0);
+        with_HammingComputer<SL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < na; ++i) {
+                HC hc(a + i * ncodes, ncodes);
+                for (size_t j = 0; j < nb; ++j)
+                    dis[i * nb + j] = hc.hamming(b + j * ncodes);
+            }
+        });
+        return;
+    }
+    static void hamming_count_thres(
+            const uint8_t* bs1,
+            const uint8_t* bs2,
+            size_t n1,
+            size_t n2,
+            hamdis_t ht,
+            size_t ncodes,
+            size_t* nptr) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<SL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n1; ++i) {
+                HC hc(bs1 + i * ncodes, ncodes);
+                for (size_t j = 0; j < n2; ++j) {
+                    const auto distance = hc.hamming(bs2 + j * ncodes);
+                    if (distance <= ht) {
+                        ++count;
+                    }
+                }
+            }
+        });
+        *nptr = count;
+        return;
+    }
+    static void crosshamming_count_thres(
+            const uint8_t* dbs,
+            size_t n,
+            hamdis_t ht,
+            size_t ncodes,
+            size_t* nptr) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<SL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n; ++i) {
+                HC hc(dbs + i * ncodes, ncodes);
+                for (size_t j = i + 1; j < n; ++j)
+                    count += hc.hamming(dbs + j * ncodes) <= ht;
+            }
+        });
+        *nptr = count;
+        return;
+    }
+    static size_t match_hamming_thres(
+            const uint8_t* bs1,
+            const uint8_t* bs2,
+            size_t n1,
+            size_t n2,
+            hamdis_t ht,
+            size_t ncodes,
+            int64_t* idx,
+            hamdis_t* dis) {
+        FAISS_THROW_IF_NOT(
+                ncodes == 8 || ncodes == 16 || ncodes == 32 || ncodes == 64);
+        size_t count = 0;
+        with_HammingComputer<SL>(ncodes, [&]<class HC>() {
+            for (size_t i = 0; i < n1; ++i) {
+                HC hc(bs1 + i * ncodes, ncodes);
+                for (size_t j = 0; j < n2; ++j) {
+                    const auto distance = hc.hamming(bs2 + j * ncodes);
+                    if (distance <= ht) {
+                        idx[2 * count] = i;
+                        idx[2 * count + 1] = j;
+                        dis[count] = distance;
+                        ++count;
+                    }
+                }
+            }
+        });
+        return count;
+    }
+};
+} // namespace detail
+
+#if defined(__loongarch_sx)
+template <>
+struct HammingKernels<SIMDLevel::LOONGARCH_LSX>
+        : detail::LoongArchHammingKernels<SIMDLevel::LOONGARCH_LSX> {};
+#endif
+#if defined(__loongarch_asx)
+template <>
+struct HammingKernels<SIMDLevel::LOONGARCH_LASX>
+        : detail::LoongArchHammingKernels<SIMDLevel::LOONGARCH_LASX> {};
+#endif
+
 /* Its own entry point, so the word-multiple kernels keep the code the
  * compiler already generates for them. */
 template <>
@@ -494,7 +735,8 @@ void hammings_ragged_fixSL<THE_SIMD_LEVEL>(
         size_t nb,
         size_t ncodes,
         hamdis_t* dis) {
-    hammings_ragged_dispatch(a, b, na, nb, ncodes, dis);
+    return HammingKernels<THE_SIMD_LEVEL>::hammings_ragged(
+            a, b, na, nb, ncodes, dis);
 }
 
 template <>
@@ -505,24 +747,7 @@ void hammings_fixSL<THE_SIMD_LEVEL>(
         size_t nb,
         size_t ncodes,
         hamdis_t* dis) {
-    FAISS_THROW_IF_NOT(ncodes % 8 == 0);
-    switch (ncodes) {
-        case 8:
-            hammings_impl<64>(C64(a), C64(b), na, nb, dis);
-            return;
-        case 16:
-            hammings_impl<128>(C64(a), C64(b), na, nb, dis);
-            return;
-        case 32:
-            hammings_impl<256>(C64(a), C64(b), na, nb, dis);
-            return;
-        case 64:
-            hammings_impl<512>(C64(a), C64(b), na, nb, dis);
-            return;
-        default:
-            hammings_impl_runtime(C64(a), C64(b), na, nb, ncodes * 8, dis);
-            return;
-    }
+    return HammingKernels<THE_SIMD_LEVEL>::hammings(a, b, na, nb, ncodes, dis);
 }
 
 template <>
@@ -545,22 +770,8 @@ void hamming_count_thres_fixSL<THE_SIMD_LEVEL>(
         hamdis_t ht,
         size_t ncodes,
         size_t* nptr) {
-    switch (ncodes) {
-        case 8:
-            hamming_count_thres_impl<64>(C64(bs1), C64(bs2), n1, n2, ht, nptr);
-            return;
-        case 16:
-            hamming_count_thres_impl<128>(C64(bs1), C64(bs2), n1, n2, ht, nptr);
-            return;
-        case 32:
-            hamming_count_thres_impl<256>(C64(bs1), C64(bs2), n1, n2, ht, nptr);
-            return;
-        case 64:
-            hamming_count_thres_impl<512>(C64(bs1), C64(bs2), n1, n2, ht, nptr);
-            return;
-        default:
-            FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
-    }
+    return HammingKernels<THE_SIMD_LEVEL>::hamming_count_thres(
+            bs1, bs2, n1, n2, ht, ncodes, nptr);
 }
 
 template <>
@@ -570,22 +781,8 @@ void crosshamming_count_thres_fixSL<THE_SIMD_LEVEL>(
         hamdis_t ht,
         size_t ncodes,
         size_t* nptr) {
-    switch (ncodes) {
-        case 8:
-            crosshamming_count_thres_impl<64>(C64(dbs), n, ht, nptr);
-            return;
-        case 16:
-            crosshamming_count_thres_impl<128>(C64(dbs), n, ht, nptr);
-            return;
-        case 32:
-            crosshamming_count_thres_impl<256>(C64(dbs), n, ht, nptr);
-            return;
-        case 64:
-            crosshamming_count_thres_impl<512>(C64(dbs), n, ht, nptr);
-            return;
-        default:
-            FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
-    }
+    return HammingKernels<THE_SIMD_LEVEL>::crosshamming_count_thres(
+            dbs, n, ht, ncodes, nptr);
 }
 
 template <>
@@ -598,23 +795,8 @@ size_t match_hamming_thres_fixSL<THE_SIMD_LEVEL>(
         size_t ncodes,
         int64_t* idx,
         hamdis_t* dis) {
-    switch (ncodes) {
-        case 8:
-            return match_hamming_thres_impl<64>(
-                    C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
-        case 16:
-            return match_hamming_thres_impl<128>(
-                    C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
-        case 32:
-            return match_hamming_thres_impl<256>(
-                    C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
-        case 64:
-            return match_hamming_thres_impl<512>(
-                    C64(bs1), C64(bs2), n1, n2, ht, idx, dis);
-        default:
-            FAISS_THROW_FMT("not implemented for %zu bits", ncodes);
-            return 0;
-    }
+    return HammingKernels<THE_SIMD_LEVEL>::match_hamming_thres(
+            bs1, bs2, n1, n2, ht, ncodes, idx, dis);
 }
 
 #undef C64

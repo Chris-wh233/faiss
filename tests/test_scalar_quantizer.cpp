@@ -96,15 +96,16 @@ std::vector<faiss::SIMDLevel> available_lloyd_max_simd_levels() {
 
 // SIMD levels with scalar-quantizer kernels that can be checked for parity
 // against the scalar (NONE) path. Unlike dispatch tests, parity tests do not
-// require dimension restrictions, so RISCV_RVV (no alignment constraints)
-// is included here.
+// require dimension restrictions.
 std::vector<faiss::SIMDLevel> available_sq_parity_simd_levels() {
     std::vector<faiss::SIMDLevel> levels;
     for (faiss::SIMDLevel level :
          {faiss::SIMDLevel::AVX512,
           faiss::SIMDLevel::AVX2,
           faiss::SIMDLevel::ARM_NEON,
-          faiss::SIMDLevel::RISCV_RVV}) {
+          faiss::SIMDLevel::RISCV_RVV,
+          faiss::SIMDLevel::LOONGARCH_LSX,
+          faiss::SIMDLevel::LOONGARCH_LASX}) {
         if (faiss::SIMDConfig::is_simd_level_available(level)) {
             levels.push_back(level);
         }

@@ -19,7 +19,9 @@ namespace faiss {
 namespace detail {
 
 inline float block_l2_dispatch(const float* x, const float* y, int n) {
-    return with_simd_level_with_sve(
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_SVE |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() { return block_l2<SL>(x, y, n); });
 }
 

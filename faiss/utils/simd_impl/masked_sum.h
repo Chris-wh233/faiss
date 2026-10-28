@@ -14,6 +14,16 @@
 
 namespace faiss {
 
+// Select shared kernels independently of the SIMD register width.
+template <SIMDLevel SL>
+struct masked_sum_level_selector {
+    static constexpr SIMDLevel value =
+            (SL == SIMDLevel::AVX512_SPR || SL == SIMDLevel::AVX512_VPOPCNT)
+            ? SIMDLevel::AVX512
+            : SL == SIMDLevel::RISCV_RVV ? SIMDLevel::NONE
+                                         : SL;
+};
+
 // Internal linkage: each file compiles these with its own flags.
 // masked_sum-avx2.h and masked_sum-avx512.h specialize masked_sum.
 namespace {

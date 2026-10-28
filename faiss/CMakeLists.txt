@@ -83,6 +83,37 @@ set(FAISS_SIMD_RVV_SRC
   utils/hamming_distance/hamming_rvv.cpp
   utils/simd_impl/rabitq_rvv.cpp
 )
+set(FAISS_SIMD_LSX_SRC
+  impl/fast_scan/impl-lsx.cpp
+  impl/hnsw/lsx.cpp
+  impl/pq_code_distance/lsx.cpp
+  impl/scalar_quantizer/sq-lsx.cpp
+  impl/approx_topk/lsx.cpp
+  impl/binary_hamming/lsx.cpp
+  utils/simd_impl/distances_lsx.cpp
+  utils/hamming_distance/hamming_lsx.cpp
+  utils/simd_impl/partitioning_lsx.cpp
+  utils/distances_fused/simdlib_based_lsx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lsx.cpp
+  utils/simd_impl/rabitq_lsx.cpp
+  utils/simd_impl/super_kmeans_kernels_lsx.cpp
+)
+set(FAISS_SIMD_LASX_SRC
+  impl/fast_scan/impl-lasx.cpp
+  impl/hnsw/lasx.cpp
+  impl/pq_code_distance/lasx.cpp
+  impl/scalar_quantizer/sq-lasx.cpp
+  impl/approx_topk/lasx.cpp
+  impl/binary_hamming/lasx.cpp
+  utils/simd_impl/distances_lasx.cpp
+  utils/hamming_distance/hamming_lasx.cpp
+  utils/simd_impl/partitioning_lasx.cpp
+  utils/distances_fused/simdlib_based_lasx.cpp
+  impl/scalar_quantizer/EDENQuantizer-lasx.cpp
+  utils/simd_impl/rabitq_lasx.cpp
+  utils/simd_impl/super_kmeans_kernels_lasx.cpp
+)
+
 # Select SIMD sources based on target architecture
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|amd64|AMD64)")
   set(FAISS_SIMD_SRC
@@ -94,6 +125,8 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64|arm64|ARM64)")
   set(FAISS_SIMD_SRC ${FAISS_SIMD_NEON_SRC} ${FAISS_SIMD_SVE_SRC})
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(riscv64|riscv)")
   set(FAISS_SIMD_SRC ${FAISS_SIMD_RVV_SRC})
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  set(FAISS_SIMD_SRC ${FAISS_SIMD_LSX_SRC} ${FAISS_SIMD_LASX_SRC})
 else()
   set(FAISS_SIMD_SRC "")
 endif()
@@ -300,6 +333,20 @@ set(FAISS_HEADERS
   index_factory.h
   factory_tools.h
   index_io.h
+  cppcontrib/SaDecodeKernels.h
+  cppcontrib/detail/CoarseBitType.h
+  cppcontrib/detail/UintReader.h
+  cppcontrib/sa_decode/Level2-avx2-inl.h
+  cppcontrib/sa_decode/Level2-inl.h
+  cppcontrib/sa_decode/Level2-loongarch-inl.h
+  cppcontrib/sa_decode/Level2-neon-inl.h
+  cppcontrib/sa_decode/MinMax-inl.h
+  cppcontrib/sa_decode/MinMaxFP16-inl.h
+  cppcontrib/sa_decode/PQ-avx2-inl.h
+  cppcontrib/sa_decode/PQ-inl.h
+  cppcontrib/sa_decode/PQ-loongarch-inl.h
+  cppcontrib/sa_decode/PQ-neon-inl.h
+  cppcontrib/sa_decode/loongarch-inl.h
   impl/AdSampling.h
   impl/AdditiveQuantizer.h
   impl/AuxIndexStructures.h
@@ -353,6 +400,11 @@ set(FAISS_HEADERS
   impl/scalar_quantizer/sq8_rvv_kernel.h
   utils/simd_impl/distances_rvv_kernel.h
   impl/scalar_quantizer/sq-dispatch.h
+  impl/scalar_quantizer/sq-loongarch.h
+  impl/scalar_quantizer/sq-loongarch-ops.h
+  impl/scalar_quantizer/sq-loongarch-advanced.h
+  impl/scalar_quantizer/sq-loongarch-lloyd-ops.h
+  impl/scalar_quantizer/sq-turboquant-dc.h
   impl/scalar_quantizer/training.h
   impl/ThreadedIndex-inl.h
   impl/ThreadedIndex.h
@@ -381,6 +433,7 @@ set(FAISS_HEADERS
   impl/pq_code_distance/pq_code_distance-avx2.h
   impl/pq_code_distance/pq_code_distance-avx512.h
   impl/pq_code_distance/pq_code_distance-generic.h
+  impl/pq_code_distance/pq_code_distance-loongarch.h
   impl/pq_code_distance/IVFPQ_QueryTables.h
   impl/pq_code_distance/IVFPQScanner_impl.h
   impl/pq_code_distance/PQDistanceComputer_impl.h
@@ -415,6 +468,8 @@ set(FAISS_HEADERS
   impl/simdlib/simdlib_avx2.h
   impl/simdlib/simdlib_avx512.h
   impl/simdlib/simdlib_emulated.h
+  impl/simdlib/simdlib_lasx.h
+  impl/simdlib/simdlib_lsx.h
   impl/simdlib/simdlib_neon.h
   impl/simdlib/simdlib_ppc64.h
   utils/utils.h
@@ -437,8 +492,17 @@ set(FAISS_HEADERS
   utils/hamming_distance/hamming_computer-generic.h
   utils/hamming_distance/hamming_computer-neon.h
   utils/hamming_distance/hamming_computer-rvv.h
+  utils/hamming_distance/hamming_computer-loongarch.h
   utils/simd_impl/distances_autovec-inl.h
+  utils/simd_impl/distances_loongarch-inl.h
+  utils/simd_impl/extra_distances_loongarch-inl.h
+  utils/simd_impl/distances_kernels.h
+  utils/simd_impl/quantizer_preprocessing.h
   utils/simd_impl/distances_simdlib256.h
+  utils/simd_impl/pq_tables_simdlib256.h
+  utils/simd_impl/loongarch_bits.h
+  utils/simd_impl/rabitq_loongarch-inl.h
+  utils/simd_impl/rabitq_quantize_loongarch-inl.h
   utils/hamming_distance/hamming_impl.h
   utils/simd_impl/exhaustive_L2sqr_blas_cmax.h
   utils/simd_impl/fp16_kernels.h
@@ -448,6 +512,7 @@ set(FAISS_HEADERS
   utils/simd_impl/masked_sum.h
   utils/simd_impl/masked_sum-avx2.h
   utils/simd_impl/masked_sum-avx512.h
+  utils/simd_impl/masked_sum-loongarch.h
   utils/simd_impl/distances_sse-inl.h
 )
 
@@ -481,6 +546,10 @@ else()
 endif()
 
 add_library(faiss ${FAISS_SRC})
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  target_compile_options(faiss PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-mno-lsx;-mno-lasx>")
+endif()
+
 
 add_library(faiss_avx2 ${FAISS_SRC})
 if(NOT FAISS_OPT_LEVEL STREQUAL "avx2" AND NOT FAISS_OPT_LEVEL STREQUAL "avx512" AND NOT FAISS_OPT_LEVEL STREQUAL "avx512_spr")
@@ -638,6 +707,17 @@ if(FAISS_OPT_LEVEL STREQUAL "dd")
     set_source_files_properties(${FAISS_SIMD_SVE_SRC}
       TARGET_DIRECTORY faiss
       PROPERTIES COMPILE_OPTIONS "-march=armv8.2-a+sve"
+    )
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+    target_compile_definitions(faiss PRIVATE
+      COMPILE_SIMD_LOONGARCH_LSX COMPILE_SIMD_LOONGARCH_LASX)
+    set_source_files_properties(${FAISS_SIMD_LSX_SRC}
+      TARGET_DIRECTORY faiss
+      PROPERTIES COMPILE_OPTIONS "-mlsx;-mno-lasx"
+    )
+    set_source_files_properties(${FAISS_SIMD_LASX_SRC}
+      TARGET_DIRECTORY faiss
+      PROPERTIES COMPILE_OPTIONS "-mlasx"
     )
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(riscv64|riscv)")
     target_compile_definitions(faiss PRIVATE COMPILE_SIMD_RISCV_RVV)

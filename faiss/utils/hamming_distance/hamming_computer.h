@@ -16,9 +16,23 @@
 #ifndef FAISS_hamming_computer_h
 #define FAISS_hamming_computer_h
 
+#include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/hamming_distance/common.h>
 
 namespace faiss {
+
+template <typename F>
+inline auto with_hamming_simd_level(F&& action) {
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            std::forward<F>(action));
+}
+template <typename F>
+inline auto with_hamming_simd_level_with_vpopcnt(F&& action) {
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(std::forward<F>(action));
+}
 
 /***************************************************************************
  * HammingComputer primary templates.
@@ -121,13 +135,22 @@ struct HammingComputer8 {
  *   with_HammingComputer<SL>(code_size, [&]<class HammingComputer>() { ... });
  **************************************************************************/
 
+template <SIMDLevel SL>
+struct HammingComputer4_tpl : HammingComputer4 {
+    using HammingComputer4::HammingComputer4;
+};
+template <SIMDLevel SL>
+struct HammingComputer8_tpl : HammingComputer8 {
+    using HammingComputer8::HammingComputer8;
+};
+
 template <SIMDLevel SL, class F>
 decltype(auto) with_HammingComputer(int code_size, F&& f) {
     switch (code_size) {
         case 4:
-            return f.template operator()<HammingComputer4>();
+            return f.template operator()<HammingComputer4_tpl<SL>>();
         case 8:
-            return f.template operator()<HammingComputer8>();
+            return f.template operator()<HammingComputer8_tpl<SL>>();
         case 16:
             return f.template operator()<HammingComputer16_tpl<SL>>();
         case 20:

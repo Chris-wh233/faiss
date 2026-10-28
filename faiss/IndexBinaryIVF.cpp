@@ -478,7 +478,7 @@ void search_knn_hamming_heap(
 
 BinaryInvertedListScanner* IndexBinaryIVF::get_InvertedListScanner(
         bool store_pairs) const {
-    return with_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
+    return with_hamming_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
         return make_binary_ivf_scanner_fixSL<SL>(code_size, store_pairs);
     });
 }
@@ -494,7 +494,7 @@ void IndexBinaryIVF::search_preassigned(
         bool store_pairs,
         const IVFSearchParameters* params) const {
     if (per_invlist_search) {
-        with_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
+        with_hamming_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
             search_knn_hamming_per_invlist_fixSL<SL>(
                     code_size,
                     this,
@@ -512,7 +512,7 @@ void IndexBinaryIVF::search_preassigned(
         search_knn_hamming_heap(
                 this, n, x, k, cidx, cdis, dis, idx, store_pairs, params);
     } else {
-        with_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
+        with_hamming_simd_level_with_vpopcnt([&]<SIMDLevel SL>() {
             search_knn_hamming_count_fixSL<SL>(
                     code_size,
                     store_pairs,

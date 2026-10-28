@@ -882,7 +882,9 @@ void PolysemousTraining::optimize_reproduce_distances(
                 }
             }
         };
-        with_simd_level(compute_dis_table);
+        with_selected_simd_levels<
+                AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+                compute_dis_table);
 
         std::vector<int> perm(n);
         ReproduceWithHammingObjective obj(nbits, dis_table, dis_weight_factor);

@@ -14,6 +14,7 @@
 
 #include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/distances.h>
+#include <faiss/utils/simd_impl/masked_sum.h>
 
 // reference implementations
 static void fvec_inner_products_ny_ref(
@@ -318,11 +319,14 @@ TEST(TestFvecMaskedSum, masked_sum) {
             }
         }
 
-        const float actual = faiss::with_simd_level([&]<faiss::SIMDLevel SL>() {
-            return faiss::fvec_masked_sum<
-                    faiss::simd512_level_selector<SL>::value>(
-                    x.data(), bits.data(), d);
-        });
+        const float actual = faiss::with_selected_simd_levels<
+                faiss::AVAILABLE_SIMD_LEVELS_BASE |
+                faiss::AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+                [&]<faiss::SIMDLevel SL>() {
+                    return faiss::fvec_masked_sum<
+                            faiss::masked_sum_level_selector<SL>::value>(
+                            x.data(), bits.data(), d);
+                });
         ASSERT_EQ(actual, expected) << "d = " << d;
     }
 }

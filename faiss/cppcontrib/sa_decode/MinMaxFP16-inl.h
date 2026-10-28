@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <faiss/cppcontrib/sa_decode/MinMax-inl.h>
 #include <faiss/utils/fp16.h>
 
 namespace faiss {
@@ -36,9 +37,8 @@ struct IndexMinMaxFP16Decoder {
                 pqFineCentroids,
                 code + 2 * sizeof(uint16_t),
                 outputStore);
-        for (intptr_t i = 0; i < SubIndexT::dim; i++) {
-            outputStore[i] = outputStore[i] * scaler + minv;
-        }
+        detail::MinMaxOps<SubIndexT>::affine(
+                outputStore, SubIndexT::dim, scaler, minv);
     }
 
     // Process 1 sample.
@@ -54,9 +54,8 @@ struct IndexMinMaxFP16Decoder {
 
         SubIndexT::store(
                 pqFineCentroids, code + 2 * sizeof(uint16_t), outputStore);
-        for (intptr_t i = 0; i < SubIndexT::dim; i++) {
-            outputStore[i] = outputStore[i] * scaler + minv;
-        }
+        detail::MinMaxOps<SubIndexT>::affine(
+                outputStore, SubIndexT::dim, scaler, minv);
     }
 
     // Process 1 sample.

@@ -11,6 +11,20 @@
 #include <cstdio>
 #include <cstdlib>
 
+#if defined(__linux__) && defined(__loongarch__)
+#include <sys/auxv.h>
+#if __has_include(<asm/hwcap.h>)
+#include <asm/hwcap.h>
+#endif
+// Older libc/kernel headers may not provide these Linux HWCAP definitions.
+#ifndef HWCAP_LOONGARCH_LSX
+#define HWCAP_LOONGARCH_LSX (1UL << 4)
+#endif
+#ifndef HWCAP_LOONGARCH_LASX
+#define HWCAP_LOONGARCH_LASX (1UL << 5)
+#endif
+#endif
+
 #if defined(_MSC_VER)
 // __cpuidex, _xgetbv
 #include <intrin.h>
@@ -178,6 +192,12 @@ uint64_t compiled_simd_levels() {
 #endif
 #ifdef COMPILE_SIMD_RISCV_RVV
     mask |= uint64_t(1) << static_cast<int>(SIMDLevel::RISCV_RVV);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+    mask |= uint64_t(1) << static_cast<int>(SIMDLevel::LOONGARCH_LSX);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+    mask |= uint64_t(1) << static_cast<int>(SIMDLevel::LOONGARCH_LASX);
 #endif
     return mask;
 }
@@ -359,6 +379,25 @@ SIMDLevel SIMDConfig::auto_detect_simd_level() {
     detected_level = SIMDLevel::RISCV_RVV;
 #endif
 
+#if defined(__linux__) && defined(__loongarch__) && \
+        (defined(COMPILE_SIMD_LOONGARCH_LSX) ||     \
+         defined(COMPILE_SIMD_LOONGARCH_LASX))
+    // Only advertise extensions both compiled in and exposed by the OS.
+    const unsigned long hwcap = getauxval(AT_HWCAP);
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+    if (hwcap & HWCAP_LOONGARCH_LSX) {
+        supported_simd_levels |= (1 << int(SIMDLevel::LOONGARCH_LSX));
+        detected_level = SIMDLevel::LOONGARCH_LSX;
+    }
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+    if (hwcap & HWCAP_LOONGARCH_LASX) {
+        supported_simd_levels |= (1 << int(SIMDLevel::LOONGARCH_LASX));
+        detected_level = SIMDLevel::LOONGARCH_LASX;
+    }
+#endif
+#endif
+
     return detected_level;
 }
 
@@ -467,6 +506,10 @@ std::string to_string(SIMDLevel level) {
             return "ARM_SVE";
         case SIMDLevel::RISCV_RVV:
             return "RISCV_RVV";
+        case SIMDLevel::LOONGARCH_LSX:
+            return "LOONGARCH_LSX";
+        case SIMDLevel::LOONGARCH_LASX:
+            return "LOONGARCH_LASX";
         case SIMDLevel::COUNT:
         default:
             throw FaissException("Invalid SIMDLevel");
@@ -497,6 +540,12 @@ SIMDLevel to_simd_level(const std::string& level_str) {
     }
     if (level_str == "RISCV_RVV") {
         return SIMDLevel::RISCV_RVV;
+    }
+    if (level_str == "LOONGARCH_LSX") {
+        return SIMDLevel::LOONGARCH_LSX;
+    }
+    if (level_str == "LOONGARCH_LASX") {
+        return SIMDLevel::LOONGARCH_LASX;
     }
 
     throw FaissException("Invalid SIMD level string: " + level_str);

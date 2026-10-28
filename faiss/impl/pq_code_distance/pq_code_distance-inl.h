@@ -43,9 +43,10 @@ namespace pq_code_distance {
  * PQCodeDistance for ALL decoder types (PQDecoder8, PQDecoder16,
  * PQDecoderGeneric) at the chosen level.
  *
- * Only PQDecoder8 has SIMD-optimized implementations (AVX2, AVX512,
- * ARM_SVE). The other decoders always use scalar code — their decode()
- * method is inherently sequential, so SIMD doesn't help.
+ * PQDecoder8 has SIMD-optimized implementations (AVX2, AVX512, ARM_SVE,
+ * LoongArch). Other decoders default to scalar code. Per-ISA specializations
+ * may still vectorize accumulation after sequential decoding, as the
+ * LoongArch implementation does.
  *
  * The primary template is always complete (no forward declarations
  * needed). For PQDecoder8, it delegates to _impl dispatch bridge
@@ -391,6 +392,62 @@ void pq_scan_8bit_impl(
         size_t k,
         float* heap_dis,
         int64_t* heap_ids,
+        bool max_heap);
+
+// Returns false when no specialized scan is available.
+// table is contiguous; rows supplies per-subquantizer tables for SDC.
+template <SIMDLevel SL>
+bool pq_scan_impl(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap) {
+    return false;
+}
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+template <>
+bool pq_scan_impl<SIMDLevel::LOONGARCH_LSX>(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap);
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+template <>
+bool pq_scan_impl<SIMDLevel::LOONGARCH_LASX>(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
+        bool max_heap);
+#endif
+FAISS_API bool pq_scan(
+        size_t M,
+        size_t nbits,
+        const float* table,
+        const float* const* rows,
+        const uint8_t* codes,
+        size_t ncodes,
+        size_t k,
+        float* distances,
+        int64_t* labels,
         bool max_heap);
 
 /// Scan all ncodes 8-bit PQ codes, dispatching to the best SIMD level.

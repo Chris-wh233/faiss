@@ -278,12 +278,16 @@ void ResidualQuantizer::train(size_t n, const float* x) {
     // find min and max norms
     std::vector<float> norms(n);
 
-    with_simd_level([&]<SIMDLevel SL>() {
-        for (size_t i = 0; i < n; i++) {
-            norms[i] = fvec_L2sqr<SL>(
-                    x + i * d, residuals.data() + i * cur_beam_size * d, d);
-        }
-    });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                for (size_t i = 0; i < n; i++) {
+                    norms[i] = fvec_L2sqr<SL>(
+                            x + i * d,
+                            residuals.data() + i * cur_beam_size * d,
+                            d);
+                }
+            });
 
     // fvec_norms_L2sqr(norms.data(), x, d, n);
     train_norm(n, norms.data());
@@ -399,13 +403,15 @@ float ResidualQuantizer::retrain_AQ_codebook(size_t n, const float* x) {
     }
 
     float output_recons_error = 0;
-    with_simd_level([&]<SIMDLevel SL>() {
-        for (size_t j = 0; j < d; j++) {
-            output_recons_error += fvec_norm_L2sqr<SL>(
-                    xt.data() + total_codebook_size + n * j,
-                    n - total_codebook_size);
-        }
-    });
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                for (size_t j = 0; j < d; j++) {
+                    output_recons_error += fvec_norm_L2sqr<SL>(
+                            xt.data() + total_codebook_size + n * j,
+                            n - total_codebook_size);
+                }
+            });
     if (verbose) {
         printf("  output quantization error %g\n", output_recons_error);
     }

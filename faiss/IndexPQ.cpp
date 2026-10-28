@@ -82,9 +82,12 @@ void IndexPQ::train(idx_t n, const float* x) {
 }
 
 FlatCodesDistanceComputer* IndexPQ::get_FlatCodesDistanceComputer() const {
-    return with_simd_level([&]<SIMDLevel SL>() {
-        return pq_code_distance::get_PQFlatCodesDistanceComputer<SL>(*this);
-    });
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE | AVAILABLE_SIMD_LEVELS_LOONGARCH>(
+            [&]<SIMDLevel SL>() {
+                return pq_code_distance::get_PQFlatCodesDistanceComputer<SL>(
+                        *this);
+            });
 }
 
 /*****************************************
@@ -259,7 +262,7 @@ void IndexPQ::search_core_polysemous(
         maxheap_heapify(k, heap_dis, heap_ids);
 
         if (!generalized_hamming) {
-            n_pass += with_simd_level([&]<SIMDLevel SL>() {
+            n_pass += with_hamming_simd_level([&]<SIMDLevel SL>() {
                 return polysemous_inner_loop_fixSL<SL>(
                         pq.code_size,
                         this,

@@ -15,6 +15,7 @@
 #include <faiss/impl/simd_dispatch.h>
 #include <faiss/utils/Heap.h>
 #include <faiss/utils/distances.h>
+#include <faiss/utils/distances_dispatch.h>
 #include <faiss/utils/extra_distances.h>
 #include <faiss/utils/prefetch.h>
 #include <faiss/utils/sorting.h>
@@ -304,10 +305,10 @@ struct FlatIPDis : FlatCodesDistanceComputer {
 FlatCodesDistanceComputer* IndexFlat::get_FlatCodesDistanceComputer() const {
     FlatCodesDistanceComputer* dc = nullptr;
     if (metric_type == METRIC_L2) {
-        with_simd_level_with_sve(
+        with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
                 [&]<SIMDLevel SL>() { dc = new FlatL2Dis<SL>(*this); });
     } else if (metric_type == METRIC_INNER_PRODUCT) {
-        with_simd_level_with_sve(
+        with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
                 [&]<SIMDLevel SL>() { dc = new FlatIPDis<SL>(*this); });
     } else {
         dc = get_extra_distance_computer(d, metric_type, metric_arg, get_xb());
@@ -440,9 +441,10 @@ FlatCodesDistanceComputer* IndexFlatL2::get_FlatCodesDistanceComputer() const {
     if (metric_type == METRIC_L2) {
         if (!cached_l2norms.empty()) {
             FlatCodesDistanceComputer* dc = nullptr;
-            with_simd_level_with_sve([&]<SIMDLevel SL>() {
-                dc = new FlatL2WithNormsDis<SL>(*this);
-            });
+            with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_DISTANCES>(
+                    [&]<SIMDLevel SL>() {
+                        dc = new FlatL2WithNormsDis<SL>(*this);
+                    });
             return dc;
         }
     }
@@ -844,7 +846,8 @@ void IndexFlatPanorama::search_subset(
         idx_t k,
         float* distances,
         idx_t* labels) const {
-    with_simd_level_with_sve([&]<SIMDLevel SL>() {
+    with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_DISTANCES>([&]<SIMDLevel SL>() {
         with_metric_type(metric_type, [&]<MetricType M>() {
             constexpr bool is_sim = is_similarity_metric(M);
             using C = std::conditional_t<

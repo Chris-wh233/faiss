@@ -18,6 +18,7 @@
 #include <faiss/invlists/DirectMap.h>
 #include <faiss/utils/distances.h>
 #include <faiss/utils/rabitq_simd.h>
+#include <faiss/utils/simd_impl/masked_sum.h>
 
 #include <algorithm>
 #include <cmath>
@@ -303,8 +304,9 @@ struct RaBitQDistanceComputerNotQ final : RaBitQDistanceComputer {
     float distance_to_code_1bit_impl(
             const uint8_t* binary_data,
             const SignBitFactors* base_fac) const {
-        const float dot_qo = fvec_masked_sum<simd512_level_selector<SL>::value>(
-                rotated_q.data(), binary_data, d);
+        const float dot_qo =
+                fvec_masked_sum<masked_sum_level_selector<SL>::value>(
+                        rotated_q.data(), binary_data, d);
 
         float final_dot = query_fac.c1 * dot_qo - query_fac.c34;
 
@@ -667,7 +669,8 @@ struct RaBitQDistanceComputerQ final : RaBitQDistanceComputer {
 
         rearranged_rotated_qq.resize(offset * qb);
         with_selected_simd_levels<
-                AVAILABLE_SIMD_LEVELS_NONE | (1 << int(SIMDLevel::AVX2)) |
+                AVAILABLE_SIMD_LEVELS_NONE | AVAILABLE_SIMD_LEVELS_LOONGARCH |
+                (1 << int(SIMDLevel::AVX2)) |
                 (1 << int(SIMDLevel::AVX512))>([&]<SIMDLevel RSL>() {
             rabitq::rearrange_bit_planes<RSL>(
                     rotated_qq.data(), d, qb, rearranged_rotated_qq.data());
@@ -748,7 +751,9 @@ FlatCodesDistanceComputer* RaBitQuantizer::get_distance_computer(
     // VPOPCNT rather than SPR: Ice Lake and Zen 4 have VPOPCNTDQ without the
     // rest of the SPR feature set. Below it, dispatch falls through to
     // rabitq_avx512.cpp.
-    return with_selected_simd_levels<AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT>(
+    return with_selected_simd_levels<
+            AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+            AVAILABLE_SIMD_LEVELS_LOONGARCH>(
             [&]<SIMDLevel SL>() -> FlatCodesDistanceComputer* {
                 if (qb == 0) {
                     auto dc =

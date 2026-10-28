@@ -359,6 +359,12 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "AIX")
 target_link_libraries(faiss_python_callbacks PRIVATE faiss)
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(loongarch64|loong64)$")
+  foreach(target swigfaiss faiss_python_callbacks faiss_example_external_module)
+    target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-mno-lsx;-mno-lasx>")
+  endforeach()
+endif()
+
 # Hack so that python_callbacks.h can be included as
 # `#include <faiss/python/python_callbacks.h>`.
 target_include_directories(faiss_python_callbacks PRIVATE ${PROJECT_SOURCE_DIR}/../..)

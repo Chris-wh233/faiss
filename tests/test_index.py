@@ -192,7 +192,19 @@ class TestDbParallelSearch(unittest.TestCase):
             Iref = all_dis.argsort(axis=1)[:, ::-1][:, :k]
 
         Dref = all_dis[np.arange(nq)[:, None], Iref]
-        np.testing.assert_almost_equal(Dref, D, decimal=5)
+        if metric_type == faiss.METRIC_L2:
+            # BLAS cancellation and SIMD reductions can reorder near ties.
+            # Check the neighbor set and each returned id/distance pair.
+            np.testing.assert_array_equal(
+                np.sort(Iref, axis=1), np.sort(I, axis=1)
+            )
+            np.testing.assert_allclose(Dref, D, rtol=1e-5, atol=1e-6)
+            np.testing.assert_allclose(
+                all_dis[np.arange(nq)[:, None], I], D, rtol=1e-5, atol=1e-6
+            )
+            self.assertTrue(np.all(D[:, 1:] >= D[:, :-1]))
+        else:
+            np.testing.assert_almost_equal(Dref, D, decimal=5)
 
     def test_ip_single_query(self):
         """nx=1, triggers db-parallel when nthreads > 1"""

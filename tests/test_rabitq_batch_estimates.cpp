@@ -34,7 +34,9 @@ std::vector<faiss::SIMDLevel> available_levels() {
           faiss::SIMDLevel::NONE,
           faiss::SIMDLevel::AVX2,
           faiss::SIMDLevel::AVX512,
-          faiss::SIMDLevel::AVX512_VPOPCNT}) {
+          faiss::SIMDLevel::AVX512_VPOPCNT,
+          faiss::SIMDLevel::LOONGARCH_LSX,
+          faiss::SIMDLevel::LOONGARCH_LASX}) {
         if (faiss::SIMDConfig::is_simd_level_available(level) &&
             std::find(levels.begin(), levels.end(), level) == levels.end()) {
             levels.push_back(level);
@@ -166,7 +168,8 @@ TEST(RaBitQBatchEstimates, RBQ9ByteCodesMatchIndependentReference) {
         for (auto level : available_levels()) {
             faiss::SIMDConfig::set_level(level);
             const float actual = faiss::with_selected_simd_levels<
-                    faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT>(
+                    faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+                    faiss::AVAILABLE_SIMD_LEVELS_LOONGARCH>(
                     [&]<faiss::SIMDLevel SL>() {
                         return faiss::rabitq::multibit::compute_inner_product<
                                 SL>(
@@ -204,7 +207,8 @@ TEST(RaBitQBatchEstimates, Q4KernelUnalignedTailsMatchByteReference) {
             faiss::SIMDConfig::set_level(level);
             faiss::rabitq::BitwiseAndDotProductResult results[4];
             faiss::with_selected_simd_levels<
-                    faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT>(
+                    faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+                    faiss::AVAILABLE_SIMD_LEVELS_LOONGARCH>(
                     [&]<faiss::SIMDLevel SL>() {
                         faiss::rabitq::bitwise_q4_batch_4<SL>(
                                 query.data() + 1, codes, size, results);
@@ -260,7 +264,8 @@ TEST(RaBitQBatchEstimates, MultiBitKernelsMatchIndependentReference) {
             for (auto level : available_levels()) {
                 faiss::SIMDConfig::set_level(level);
                 const float actual = faiss::with_selected_simd_levels<
-                        faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT>(
+                        faiss::AVAILABLE_SIMD_LEVELS_BASE_WITH_VPOPCNT |
+                        faiss::AVAILABLE_SIMD_LEVELS_LOONGARCH>(
                         [&]<faiss::SIMDLevel SL>() {
                             return faiss::rabitq::multibit::
                                     compute_inner_product<SL>(
