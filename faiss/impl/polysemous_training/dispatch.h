@@ -15,11 +15,12 @@ struct ReproduceDistancesObjective;
 
 namespace polysemous_training {
 
-// Levels with a dedicated kernel: scalar (NONE) plus AVX-512. Any other runtime
+// Levels with a dedicated kernel: scalar, AVX-512 and LSX/LASX. Other runtime
 // level (AVX2, NEON, ...) falls back to NONE via with_selected_simd_levels /
 // get_simd_fallback, and AVX512_SPR reuses the AVX-512 kernel.
-constexpr int SIMD_LEVELS =
-        (1 << int(SIMDLevel::NONE)) | (1 << int(SIMDLevel::AVX512));
+constexpr int SIMD_LEVELS = (1 << int(SIMDLevel::NONE)) |
+        (1 << int(SIMDLevel::AVX512)) | (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
 
 /// compute_cost for ReproduceWithHammingObjective.
 /// Parameters mirror the objective's fields to avoid exposing the
@@ -110,6 +111,60 @@ double distances_cost_update<SIMDLevel::AVX512>(
         const int* perm,
         int iw,
         int jw);
+
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+template <>
+double hamming_compute_cost<SIMDLevel::LOONGARCH_LSX>(
+        int n,
+        const int* perm,
+        const double* target_dis,
+        const double* weights);
+template <>
+double hamming_cost_update<SIMDLevel::LOONGARCH_LSX>(
+        int n,
+        const int* perm,
+        int iw,
+        int jw,
+        const double* target_dis,
+        const double* weights);
+template <>
+double distances_compute_cost<SIMDLevel::LOONGARCH_LSX>(
+        const ReproduceDistancesObjective& obj,
+        const int* perm);
+template <>
+double distances_cost_update<SIMDLevel::LOONGARCH_LSX>(
+        const ReproduceDistancesObjective& obj,
+        const int* perm,
+        int iw,
+        int jw);
+#endif
+
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+template <>
+double hamming_compute_cost<SIMDLevel::LOONGARCH_LASX>(
+        int n,
+        const int* perm,
+        const double* target_dis,
+        const double* weights);
+template <>
+double hamming_cost_update<SIMDLevel::LOONGARCH_LASX>(
+        int n,
+        const int* perm,
+        int iw,
+        int jw,
+        const double* target_dis,
+        const double* weights);
+template <>
+double distances_compute_cost<SIMDLevel::LOONGARCH_LASX>(
+        const ReproduceDistancesObjective& obj,
+        const int* perm);
+template <>
+double distances_cost_update<SIMDLevel::LOONGARCH_LASX>(
+        const ReproduceDistancesObjective& obj,
+        const int* perm,
+        int iw,
+        int jw);
+#endif
 
 } // namespace polysemous_training
 } // namespace faiss

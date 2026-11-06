@@ -643,6 +643,54 @@ EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
 }
 #endif
 
+#ifdef COMPILE_SIMD_LOONGARCH_LSX
+void compute_code_dot_lut_batch_8_lsx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LSX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lsx);
+}
+#endif
+#ifdef COMPILE_SIMD_LOONGARCH_LASX
+void compute_code_dot_lut_batch_8_lasx(
+        const uint8_t* const code[8],
+        const float* lut,
+        int kind,
+        size_t packed_size,
+        float dots[8]);
+template <>
+EDENFlatCodesDistanceComputer* make_distance_computer_for_level<
+        SIMDLevel::LOONGARCH_LASX>(
+        MetricType metric_type,
+        size_t d,
+        size_t nb_bits,
+        const float* scalar_centroids,
+        const float* centroid) {
+    return make_optimized_distance_computer(
+            metric_type,
+            d,
+            nb_bits,
+            scalar_centroids,
+            centroid,
+            compute_code_dot_lut_batch_8_lasx);
+}
+#endif
 } // namespace eden_distance
 
 namespace eden_utils {

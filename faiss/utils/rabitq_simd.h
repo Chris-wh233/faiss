@@ -19,7 +19,9 @@ namespace faiss::rabitq {
 
 /// SIMD levels with RaBitQ query/LUT quantization implementations.
 constexpr int RABITQ_QUANTIZATION_SIMD_LEVELS = (1 << int(SIMDLevel::NONE)) |
-        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512));
+        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512)) |
+        (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
 
 struct BitwiseAndDotProductResult {
     uint64_t dot_product;

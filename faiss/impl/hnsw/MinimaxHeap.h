@@ -80,7 +80,7 @@ struct MinimaxHeapT {
         nvalid = k = 0;
     }
 
-    /// Runtime-dispatched best-element extraction (NONE + AVX2 + AVX512).
+    /// Runtime-dispatched best-element extraction.
     int pop_min(float* vmin_out = nullptr);
 
     int count_below(float thresh) {

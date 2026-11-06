@@ -11,9 +11,11 @@
 
 namespace faiss {
 
-// Runtime-dispatched pop_min (NONE + AVX2 + AVX512 only).
+// Runtime-dispatched pop_min.
 constexpr int MINIMAX_HEAP_SIMD_LEVELS = (1 << int(SIMDLevel::NONE)) |
-        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512));
+        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512)) |
+        (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
 
 template <class HC_>
 int MinimaxHeapT<HC_>::pop_min(float* vmin_out) {

@@ -576,7 +576,9 @@ void exhaustive_L2sqr_blas<Top1BlockResultHandler<CMax<float, int64_t>>>(
             [&]<SIMDLevel SL>() {
                 if constexpr (
                         SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
-                        SL == SIMDLevel::ARM_SVE) {
+                        SL == SIMDLevel::ARM_SVE ||
+                        SL == SIMDLevel::LOONGARCH_LSX ||
+                        SL == SIMDLevel::LOONGARCH_LASX) {
                     exhaustive_L2sqr_blas_cmax<SL>(
                             x, y, d, nx, ny, res, y_norms);
                 } else {
@@ -614,7 +616,9 @@ void exhaustive_L2sqr_blas_fp16<Top1BlockResultHandler<CMax<float, int64_t>>>(
             [&]<SIMDLevel SL>() {
                 if constexpr (
                         SL == SIMDLevel::AVX2 || SL == SIMDLevel::AVX512 ||
-                        SL == SIMDLevel::ARM_SVE) {
+                        SL == SIMDLevel::ARM_SVE ||
+                        SL == SIMDLevel::LOONGARCH_LSX ||
+                        SL == SIMDLevel::LOONGARCH_LASX) {
                     exhaustive_L2sqr_blas_cmax_fp16<SL>(
                             x, y, d, nx, ny, res, y_norms);
                 } else {

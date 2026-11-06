@@ -18,15 +18,16 @@ namespace faiss {
 // SIMD-level masks
 // ----------------------------------------------------------------
 
-// Top-1: scalar fallback + AVX2 (8-wide) + AVX512 (16-wide).
+// Top-1: scalar fallback + AVX2 + AVX512 + LSX/LASX.
 constexpr int TOP1_SIMD_LEVELS = (1 << int(SIMDLevel::NONE)) |
-        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512));
+        (1 << int(SIMDLevel::AVX2)) | (1 << int(SIMDLevel::AVX512)) |
+        (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
 
-// Reservoir: scalar fallback + AVX512 compress path.
-// VPCOMPRESSPS/VPCOMPRESSD require AVX512F so there is no AVX2 path.
-// On non-AVX512 hosts the dispatch falls back to NONE automatically.
-constexpr int RESERVOIR_SIMD_LEVELS =
-        (1 << int(SIMDLevel::NONE)) | (1 << int(SIMDLevel::AVX512));
+// Reservoir: scalar fallback + AVX512 compress + LSX/LASX filtering.
+constexpr int RESERVOIR_SIMD_LEVELS = (1 << int(SIMDLevel::NONE)) |
+        (1 << int(SIMDLevel::AVX512)) | (1 << int(SIMDLevel::LOONGARCH_LSX)) |
+        (1 << int(SIMDLevel::LOONGARCH_LASX));
 
 // ----------------------------------------------------------------
 // Scalar (NONE) helper implementations
