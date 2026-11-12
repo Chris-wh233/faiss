@@ -509,6 +509,97 @@ jobs:
             build/tests/faiss_test \
             --gtest_filter="ScalarQuantizer.*DistancePathParity*"
 
+  linux-loongarch64-DD-cmake:
+    name: Linux loongarch64 Dynamic Dispatch cross-compile (cmake)
+    needs: [linux-x86_64-cmake, changes]
+    if: ${{ needs.changes.outputs.has_cpu_changes == 'true' || github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up loongarch64 cross-compilation environment
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            cmake \
+            gcc-14-loongarch64-linux-gnu \
+            g++-14-loongarch64-linux-gnu \
+            libgfortran5-loong64-cross \
+            libgomp1-loong64-cross \
+            qemu-user-static
+          # Ubuntu has no loong64 OpenBLAS package; use Debian's prebuilt library.
+          OPENBLAS_DEB="$RUNNER_TEMP/libopenblas-loong64.deb"
+          curl -fsSL \
+            https://deb.debian.org/debian/pool/main/o/openblas/libopenblas0-pthread_0.3.34+ds-2_loong64.deb \
+            -o "$OPENBLAS_DEB"
+          echo "c9476824bd77504fd1dfc5cde6f3812852358906320d54ba25fee97f878e02ac  $OPENBLAS_DEB" \
+            | sha256sum -c -
+          dpkg-deb -x "$OPENBLAS_DEB" "$RUNNER_TEMP/openblas-loong64"
+          sudo cp -a \
+            "$RUNNER_TEMP/openblas-loong64/usr/lib/loongarch64-linux-gnu/openblas-pthread/." \
+            /usr/loongarch64-linux-gnu/lib/
+          sudo ln -sfn libopenblas.so.0 /usr/loongarch64-linux-gnu/lib/libopenblas.so
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: linux-loongarch64-dd
+          max-size: 2G
+          update-package-index: true
+
+      - name: Configure (cmake)
+        run: |
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/loongarch64-linux-gnu.cmake \
+            -DBUILD_TESTING=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DFAISS_ENABLE_GPU=OFF \
+            -DFAISS_OPT_LEVEL=dd \
+            -DFAISS_ENABLE_PYTHON=OFF \
+            -DFAISS_ENABLE_C_API=OFF \
+            -DBLA_VENDOR=OpenBLAS \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_BUILD_RPATH=/usr/loongarch64-linux-gnu/lib \
+            .
+
+      - name: Build faiss_test (includes test_factory_tools)
+        run: cmake --build build --target faiss_test -j$(nproc)
+
+      - name: Verify binary with ldd (via QEMU)
+        run: |
+          file build/tests/faiss_test
+          file build/tests/faiss_test | grep -q "LoongArch"
+          LOONGARCH64_LD=$(find /usr/loongarch64-linux-gnu/lib \
+            -name "ld-linux-loongarch-*.so.1" | head -1)
+          qemu-loongarch64-static -cpu la464 -L /usr/loongarch64-linux-gnu \
+            "$LOONGARCH64_LD" --list build/tests/faiss_test
+
+      - name: Run scalar tests (via QEMU)
+        env:
+          FAISS_SIMD_LEVEL: NONE
+        run: |
+          qemu-loongarch64-static -cpu la464 \
+            -L /usr/loongarch64-linux-gnu build/tests/faiss_test \
+            --gtest_filter="SIMDConfig.*:SIMDLevel.*:CompileOptions.*:TestFvec*"
+
+      - name: Run LSX tests (via QEMU)
+        run: |
+          qemu-loongarch64-static -cpu la464,lasx=off \
+            -L /usr/loongarch64-linux-gnu build/tests/faiss_test \
+            --gtest_filter="SIMDConfig.*:SIMDLevel.*:CompileOptions.*:TestFvec*:DistancesDispatch.*:ScalarQuantizer.SQ8InnerProductSimdDistancePathParity"
+
+      - name: Run LASX tests (via QEMU)
+        run: |
+          qemu-loongarch64-static -cpu la464 \
+            -L /usr/loongarch64-linux-gnu build/tests/faiss_test \
+            --gtest_filter="SIMDConfig.*:SIMDLevel.*:CompileOptions.*:TestFvec*:DistancesDispatch.*:ScalarQuantizer.SQ8InnerProductSimdDistancePathParity"
+
   index-io-backward-compatibility:
     needs: linux-x86_64-cmake
     name: Index serialization backward compatibility
